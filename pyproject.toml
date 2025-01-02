@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "datatrees"
+version = "0.1.0"
+authors = [
+  { name="Gianni Mariani", email="gianni@mariani.ws" },
+]
+description = "Wrapper for dataclasses with auto field injection, binding, self-default and more"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "frozendict>=2.3.8",
+    "sortedcollections>=2.1.0"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/owebeeone/datatrees"
+"Bug Tracker" = "https://github.com/owebeeone/datatrees/issues" 
