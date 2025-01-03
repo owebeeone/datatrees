@@ -4,15 +4,25 @@ on:
   release:
     types: [created]
 
+env:
+  DEFAULT_PYTHON: "3.11"
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     if: github.event.release.target_commitish == 'release'
+    environment:
+      name: release
+      # url: https://pypi.org/project/datatrees/
+    permissions:
+      contents: write
+      id-token: write  # Required for OIDC PyPI publishing
+    
     steps:
     - uses: actions/checkout@v4
       with:
-        ref: release  # Explicitly checkout the release branch
-        fetch-depth: 0  # Fetch all history for proper versioning
+        ref: release
+        fetch-depth: 0
     
     - name: Verify branch
       run: |
@@ -25,19 +35,31 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.x'
+        python-version: ${{ env.DEFAULT_PYTHON }}
     
-    - name: Install dependencies
+    - name: Install build
       run: |
         python -m pip install --upgrade pip
-        pip install build twine
+        pip install build
+    
+    - name: Set package version from tag
+      run: |
+        version="${{ github.event.release.tag_name }}"
+        version="${version,,}"  # Convert to lowercase
+        version="${version#v}"  # Remove 'v' prefix if present
+        echo "RELEASE_VERSION=$version" >> $GITHUB_ENV
     
     - name: Build package
       run: python -m build
     
     - name: Publish to PyPI
-      env:
-        TWINE_USERNAME: __token__
-        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-      run: |
-        twine upload dist/*
+      uses: pypa/gh-action-pypi-publish@v1.8.11
+      with:
+        verbose: true
+        print-hash: true
+    
+    - name: Sign published artifacts
+      uses: sigstore/gh-action-sigstore-python@v3.0.0
+      with:
+        inputs: ./dist/*.tar.gz ./dist/*.whl
+        release-signing-artifacts: true
