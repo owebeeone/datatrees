@@ -836,30 +836,30 @@ _Node = Node
 
 
 @dataclass(frozen=True, repr=False)
-class BoundNode:
+class BoundNode(Generic[_T]):
     '''The result of binding a Node to a class instance. Once a datatree
     object is created, all Node fields become BoundNode fields.'''
 
     parent: object = field(compare=False)
     name: str
-    node: Node = field(compare=False)
+    node: Node[_T] = field(compare=False)
     instance_node: object = field(repr=False)
     chained_node: object = field(default=None, repr=False, compare=False)
 
-    def chain(self, new_parent, node):
+    def chain(self, new_parent, node) -> 'BoundNode[_T]':
         return BoundNode(new_parent, self.name, self.node, node, self)
 
-    def __call__(self, *args, **kwds):
+    def __call__(self, *args, **kwds) -> _T:
         return self._invoke(self, self.node.clz_or_func.clz_or_func, args, kwds)
 
-    def call_with(self, clz_or_func, *args, **kwds):
+    def call_with(self, clz_or_func, *args, **kwds) -> _T:
         return self._invoke(self, clz_or_func, args, kwds)
 
-    def call_with_alt_defaults(self, clz_or_func, *args, alt_defaults=None, **kwds):
+    def call_with_alt_defaults(self, clz_or_func, *args, alt_defaults=None, **kwds) -> _T:
         return self._invoke(self, clz_or_func, args, kwds, alt_defaults)
 
     @classmethod
-    def _invoke(cls, node, clz_or_func, args, kwds, alt_defaults=None):
+    def _invoke(cls, node, clz_or_func, args, kwds, alt_defaults=None) -> _T:
         # Resolve parameter values.
         # Priority order:
         # 1. Override (if any)
@@ -901,7 +901,7 @@ class BoundNode:
 
         return clz_or_func(**ovrde_bind)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'BoundNode(node={repr(self.node)})'
 
 
@@ -917,7 +917,7 @@ class Overrides:
     def get_override(self, name):
         return self.kwds.get(name, MISSING)
 
-
+# Deprecated: support for this will be removed in a future release.
 def override(**kwds):
     return Overrides(kwds)
 
@@ -1302,7 +1302,7 @@ def _create_post_init_function(clz, wrap_fn=None, chain_post_init=False):
         '__post_init__', header_lines, body_lines, locals=all_locals, globals=globals
     )
 
-    # Mark the function as a datatree post-init function
+    # Mark the function as a datatree generatedpost-init function
     setattr(override_post_init, DATATREE_POST_INIT_SENTIENEL_NAME, True)
     return override_post_init
 
