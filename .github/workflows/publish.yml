@@ -2,7 +2,7 @@ name: Publish to PyPI
 
 on:
   release:
-    types: [created]
+    types: [published]
 
 env:
   DEFAULT_PYTHON: "3.11"
