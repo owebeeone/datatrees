@@ -3,31 +3,31 @@ Created on 8 Dec 2021
 
 @author: gianni
 
-Wrapper over Python's dataclass that allows for: 
-- Injection and Binding: the composition of classes by injecting constructor parameters 
+Wrapper over Python's dataclass that allows for:
+- Injection and Binding: the composition of classes by injecting constructor parameters
   or function parameters automatically binding the injected fields to the factory calls.
-- self_default: Not unline default_factory, self_default is called after the constructor 
+- self_default: Not unline default_factory, self_default is called after the constructor
   has finished and with the class instance (self) as the first parameter.
 - post_init chaining: When the inherited classes post_init will be called in reverse MRO
-  order. Doing this manually is error prone and difficult to maitain because manually 
-  chaining post_init in each class will sometimes result in a pareant post_init being 
+  order. Doing this manually is error prone and difficult to maitain because manually
+  chaining post_init in each class will sometimes result in a pareant post_init being
   called multiple times (classic issue with diamond inheritance).
 - docstrings: Docstrings can be provided for fields and these will also be injected.
 
 Datatrees is particularly useful when composing a class from other classes or functions
-in a heirarchical manner where fields from classes deeper in the hierarchy need to be 
-propagated as root class parameters. The boilerplate code for such a composition 
-is often error prone and difficult to maintain. The impetutus for this library came 
-from building hierarchical 3D models where each node in the hierarchy collected fields 
-from nodes nested in the hierarchy. Using datatree, almost all the boilerplate 
-management of model parameters was eliminated resulting in a clean and maintainable 
+in a heirarchical manner where fields from classes deeper in the hierarchy need to be
+propagated as root class parameters. The boilerplate code for such a composition
+is often error prone and difficult to maintain. The impetutus for this library came
+from building hierarchical 3D models where each node in the hierarchy collected fields
+from nodes nested in the hierarchy. Using datatree, almost all the boilerplate
+management of model parameters was eliminated resulting in a clean and maintainable
 3D model classes.
 
 Injection and Binding:
 
-The Node[T] annotation with a Node default value is used to determine the injected 
-fields. Upon class contruction Node fields transform into factories that bind the 
-injected fields as defaults. Field names can be mapped to different names, prefixed or 
+The Node[T] annotation with a Node default value is used to determine the injected
+fields. Upon class contruction Node fields transform into factories that bind the
+injected fields as defaults. Field names can be mapped to different names, prefixed or
 suffixed or excluded from injection.
 
 Example:
@@ -64,10 +64,10 @@ a.x == 3
 In the above example, the Node field a_node causes the fields of A to be
 injected into B. The field 'a' is mapped to 'a' and the field 'b' is mapped
 to 'c'. Hence B contains 4 fields (but only 3 parameters to the constructor
-because by default Node fields are init=False and not included in the constructor 
-parameters), a_node, a, c (mapped to b) and x. The a_node field is a factory that 
-creates an instance of A that has the 'a' init parameter default set to the value 
-of the field 'a' in B and the default value of the init parameter 'b' is set to 
+because by default Node fields are init=False and not included in the constructor
+parameters), a_node, a, c (mapped to b) and x. The a_node field is a factory that
+creates an instance of A that has the 'a' init parameter default set to the value
+of the field 'a' in B and the default value of the init parameter 'b' is set to
 the value of the field 'c' in B etc.
 
 Datatree is particularly useful when composing a class from other classes or
@@ -82,13 +82,13 @@ complex relationships that require a large number of parameters.
 
 Deafault values with self_default:
 
-Like the dataclasses field() function's default_factory parameter, the 
+Like the dataclasses field() function's default_factory parameter, the
 self_default parameter to the dtfield() function allows for a parameter that is
 provided with the class instance (self) as the first parameter.
 The self_default lambda or function is called after the dataclass constructor
-has finished and all the Node fields have been initialized to factories 
+has finished and all the Node fields have been initialized to factories
 (BoundNodes) and are called in the order of the declaration of fields within the
-class. Note than injected fields are placed immedialtly prior to Node that 
+class. Note than injected fields are placed immedialtly prior to Node that
 injects them. Fields with self_default functions are by default init=False
 and are not included in the constructor parameters (or injected) however if
 they are they will be called in the parent class datatree initialization
@@ -103,7 +103,7 @@ to the datatree decorator.
 @datatree(post_init_chain=True)
 
 The post_init chaining is implemented by calling the post_init methods of the
-parent classes in reverse MRO order. It will ensure that the parent post_init 
+parent classes in reverse MRO order. It will ensure that the parent post_init
 methods are called only once. It will also handle InitVar fields and pass InitVar
 fields that are nominated in parent classes.
 
@@ -114,9 +114,9 @@ docstring. When fields are injected, the docstring is injected into the field.
 
 Documentation for Injected Fields:
 
-The datatrres.get_injected_fields() function can be used to get injected field 
-documentation. The get_injected_fields() function returns an InjectedFields object 
-that can be used to generate an html page containing the injected fields and their 
+The datatrres.get_injected_fields() function can be used to get injected field
+documentation. The get_injected_fields() function returns an InjectedFields object
+that can be used to generate an html page containing the injected fields and their
 bindings.
 
         injectedFields = datatrees.get_injected_fields(clz)
@@ -140,12 +140,12 @@ import re
 
 FIELD_FIELD_NAMES = tuple(inspect.signature(field).parameters.keys())
 DATATREE_SENTIENEL_NAME = '__datatree_nodes__'
-OVERRIDE_FIELD_NAME = 'override' # Deprecated feature.
+OVERRIDE_FIELD_NAME = 'override'  # Deprecated feature.
 METADATA_DOCS_NAME = 'dt_docs'
-ORIGINAL_POST_INIT_NAME = '__original_post_init__' # User provided post_init renamed to this.
+ORIGINAL_POST_INIT_NAME = '__original_post_init__'  # User provided post_init renamed to this.
 DATATREE_POST_INIT_SENTIENEL_NAME = "__is_datatree_override_post_init__"
 
-_T = TypeVar('T') # Generic type variable for Node[T] fields.
+_T = TypeVar('T')  # Generic type variable for Node[T] fields.
 
 
 class ReservedFieldNameException(Exception):
@@ -350,9 +350,11 @@ class Node(Generic[_T]):
     composition class.
     '''
 
-    clz_or_func: type[_T] | Callable[..., _T] = dtfield(doc='A class or function for parameter binding.')
+    clz_or_func: type[_T] | Callable[..., _T] = dtfield(
+        doc='A class or function for parameter binding.'
+    )
     use_defaults: bool = dtfield(
-        doc='Allows use of defaults otherwise defaults should be ' 'specified elsewhere.'
+        doc='Allows use of defaults otherwise defaults should be specified elsewhere.'
     )
     suffix: str = dtfield(doc='Suffix to apply to injected field names.')
     prefix: str = dtfield(doc='Prefix to apply to injected field names.')
@@ -531,7 +533,7 @@ class Node(Generic[_T]):
 
     def get_map(self):
         return self.expose_map
-    
+
     def __call__(self, *args, **kwargs) -> _T:
         # This is a type specifier, not a callable.
         # These entries are transformed into BoundNode instances at initialization.
@@ -565,7 +567,7 @@ def _make_dataclass_field(field_obj, use_default, node_doc):
         value_map.pop('default_factory', None)
     return field(**value_map), None
 
-        
+
 @dataclass
 class InjectedFieldInfo:
     '''The source of an injected field.'''
@@ -646,7 +648,7 @@ class InjectedFields:
           url_generator: A function that takes a class name and returns a string
             that can be used as a url to the class's documentation.
         '''
-        
+
         import html
 
         def _html_row(field_name, details, is_nested):
@@ -1057,7 +1059,7 @@ def datatree(
     slots=False,
     weakref_slot=False,
     chain_post_init=False,
-    provide_override_field=False
+    provide_override_field=False,
 ) -> Callable[[type[_T]], type[_T]]:
     '''Python decorator similar to dataclasses.dataclass providing parameter injection,
     injection, binding and overrides for parameters deeper inside a tree of objects.
@@ -1190,11 +1192,15 @@ def _get_post_init_parameter_map(
     result: dict[type, tuple[list[_PostInitParameter], str]] = {}
     for post_init_class in dataclass_parents:
         b = clz.__mro__[post_init_class.mro_index]
-        post_init_params: list[_PostInitParameter] = [
-            fields[f.name][1]
-            for f in b.__dataclass_fields__.values()
-            if f._field_type is _FIELD_INITVAR
-        ] if hasattr(b, '__dataclass_fields__') else []
+        post_init_params: list[_PostInitParameter] = (
+            [
+                fields[f.name][1]
+                for f in b.__dataclass_fields__.values()
+                if f._field_type is _FIELD_INITVAR
+            ]
+            if hasattr(b, '__dataclass_fields__')
+            else []
+        )
         result[post_init_class.mro_index] = (post_init_params, post_init_class.post_init_name)
 
     result[0] = ([t[1] for t in fields.values() if not t[1].is_in_self], post_init_new_name)
@@ -1232,7 +1238,8 @@ def _create_chain_post_init_text(
             )
             body_text.append(
                 f"    mro[{mro_index}].{params_funcname[1]}({', '.join(names)})"
-                f" # {clz.__mro__[mro_index].__name__}")
+                f" # {clz.__mro__[mro_index].__name__}"
+            )
 
     # Call the original post-init function if it exists as post_init_name.
     if post_init_new_name in clz.__dict__:
@@ -1249,7 +1256,8 @@ def _create_chain_post_init_text(
                 )
                 body_text.append(
                     f"    mro[{mro_index}].{funcname}({', '.join(names)})"
-                    f" # {clz.__mro__[mro_index].__name__}")
+                    f" # {clz.__mro__[mro_index].__name__}"
+                )
                 break
 
     return locals, header_text, body_text

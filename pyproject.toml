@@ -23,4 +23,10 @@ dependencies = [
 
 [project.urls]
 "Homepage" = "https://github.com/owebeeone/datatrees"
-"Bug Tracker" = "https://github.com/owebeeone/datatrees/issues" 
+"Bug Tracker" = "https://github.com/owebeeone/datatrees/issues"
+
+[tool.hatch.envs.test]
+dependencies = [
+  "pytest>=7.0.0",
+  "pytest-cov>=4.0.0",
+] 
