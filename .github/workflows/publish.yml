@@ -10,7 +10,6 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: github.event.release.target_commitish == 'release'
     environment:
       name: release
       # url: https://pypi.org/project/datatrees/
@@ -23,14 +22,6 @@ jobs:
       with:
         ref: release
         fetch-depth: 0
-    
-    - name: Verify branch
-      run: |
-        CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-        if [ "$CURRENT_BRANCH" != "release" ]; then
-          echo "Error: Must release from 'release' branch. Current branch is $CURRENT_BRANCH"
-          exit 1
-        fi
     
     - name: Set up Python
       uses: actions/setup-python@v4
