@@ -1,15 +1,15 @@
-markdown:datatrees/README.md
 # Datatrees
 
-A wrapper to Python's dataclasses for simplifying class composition with automatic field injection, binding, self-defaults and more.
+A wrapper to Python's dataclasses for simplifying class composition with automatic field 
+injection, binding, self-defaults and more.
 
-Datatrees is particularly useful when composing a class from other classes or functions
-in a heirarchical manner where fields from classes deeper in the hierarchy need to be 
-propagated as root class parameters. The boilerplate code for such a composition 
-is often error prone and difficult to maintain. The impetutus for this library came 
-from building hierarchical 3D models where each node in the hierarchy collected fields 
-from nodes nested in the hierarchy. Using datatree, almost all the boilerplate 
-management of model parameters was eliminated resulting in a clean and maintainable 
+Datatrees is particularly useful for composing a class from other classes or functions
+in a hierarchical manner, where fields from classes deeper in the hierarchy need to be
+propagated as root class parameters. The boilerplate code for such a composition
+is often error-prone and difficult to maintain. The impetus for this library came
+from building hierarchical 3D models where each node in the hierarchy collected fields
+from nodes nested deeper in the hierarchy. Using datatrees, almost all the boilerplate
+management of model parameters was eliminated, resulting in clean and maintainable
 3D model classes.
 
 ## Installation
@@ -132,7 +132,7 @@ class Source:
 @datatree
 class Target:
     # Map value_a to a, value_b to b
-    source: Node = Node(Source, 
+    source: Node[Source] = Node(Source, 
         'value_a',           # Direct mapping to same name
         {'value_b': 'b'},    # Map value_b to b
         prefix='src_'        # Prefix all unmapped fields
@@ -173,7 +173,9 @@ assert rect.area == 100  # Calculated after initialization
 
 ## Post-Init Chaining
 
-The `chain_post_init` parameter allows proper initialization of inherited classes. When enabled, the `__post_init__` methods are called in MRO (Method Resolution Order) order:
+The `chain_post_init` parameter allows proper initialization of inherited classes. When enabled, the `__post_init__` methods are called in reverse MRO (Method Resolution Order) order (i.e least derived class first).
+
+In complex multiple-inheritance or “diamond” inheritance scenarios, each class in the MRO is initialized only once, so repeated classes in the inheritance graph do not result in multiple calls to the same `__post_init__`.
 
 ```python
 @datatree(chain_post_init=True)
@@ -215,6 +217,48 @@ class C(A, B):
 # A init
 # C init
 c = C()
+```
+
+Here's an example of diamond inheritance where Base.post_init is called only once 
+even though it is inherited by both Left and Right.
+
+```python
+@datatree
+class Base:
+    def __post_init__(self):
+        print("Base init")
+
+@datatree(chain_post_init=True)
+class Left(Base):
+    def __post_init__(self):
+        print("Left init")
+
+@datatree(chain_post_init=True)
+class Right(Base):
+    def __post_init__(self):
+        print("Right init")
+
+@datatree(chain_post_init=True)
+class Diamond(Left, Right):
+    def __post_init__(self):
+        print("Diamond init")
+
+# Prints:
+# Base init
+# Left init
+left = Left()
+
+# Prints:
+# Base init
+# Right init
+right = Right()
+
+# Prints:
+# Base init    # Base.__post_init__ is called only once
+# Right init
+# Left init
+# Diamond init
+d = Diamond()
 ```
 
 ## Node Configuration
@@ -265,7 +309,7 @@ class Source:
 
 @datatree
 class Target:
-    source: Node = dtfield(Node(Source), doc="Source configuration")
+    source: Node[Source] = dtfield(Node(Source), doc="Source configuration")
     
 # Documentation is preserved and combined
 assert field_docs(Target(), 'value') == "Source configuration: The source value"
@@ -289,7 +333,7 @@ This feature allowed runtime modification of Node parameters but is being phased
 
 ### Type Safety
 
-Datatrees supports static type checking:
+Datatrees Node fields can be typed using TypeVar and Generic.
 
 ```python
 from typing import TypeVar, Generic
@@ -299,12 +343,19 @@ T = TypeVar('T')
 @datatree
 class Container(Generic[T]):
     value: T
-    processor: Node[T] = Node(lambda x: x)
+    processor: Node[T] = Node(lambda x: x * 2)
+
+container = Container[int](value=10, x=10)
+assert container.value == 10
+assert container.processor() == 20
 ```
 
-### Binding Defaults
+### Self-Defaults
 
-Custom binding behavior can be defined:
+Fields can be provided a lambda or function where self is passed as the first parameter.
+
+Self-default fields are initialized after the regular dataclass initialization has completed
+and in the order of the fields in the class definition. 
 
 ```python
 @datatree
@@ -312,7 +363,7 @@ class Advanced:
     base: int = 10
     computed: int = dtfield(
         self_default=lambda self: self.base * 2,
-        init=False  # Won't appear in __init__
+        init=False  # By default, self_default fields are init=False
     )
 ```
 
@@ -333,11 +384,81 @@ class Processor:
         result = self.processor()  # Uses x=10, y=2
 ```
 
+### Dataclass InitVar
+
+Dataclass InitVar fieldsare supported by datatree including with chain_post_init=True.
+
+The InitVar fields are passed to the __post_init__ method as parameters. Chaining post_init
+will require that the InitVar fields that are expected by the parent classes are passed
+correctly. If IniVar fields are shadowed by non IniVar fields of the same name, the 
+field will be taken from self and passed to the parent class.
+
+```python
+@datatree
+class GrandBase:
+    ga: InitVar[int]
+    gb: float
+    def __post_init__(self, ga):
+        print(f"GrandBase ga={ga}")
+
+@datatree
+class Parent(GrandBase):
+    pc: int
+    def __post_init__(self, ga):
+        print(f"Parent self.pc={self.pc}")
+
+@datatree(chain_post_init=True)
+class Child(Parent):
+    gc: InitVar[int]
+    cc: str
+    def __post_init__(self, ga, gc):
+        print(f"Child ga={ga}, gc={gc}, self.cc={self.cc}")
+
+# prints:
+# GrandBase ga=10
+# Parent self.pc=True
+# Child ga=10, gc=100, self.cc=hello
+c = Child(gb=1.2, ga=10, pc=True, gc=100, cc="hello")
+
+```
+
+### Node and InitVar
+
+The Node class can be used to inject InitVar fields but the InitVar fields will be
+injected as non-InitVar fields otherwise it would not be possible to retrieve them
+when the Node factory is called.
+
+```python
+@datatree
+class Leaf:
+    ga: InitVar[int]
+    gb: int
+    def __post_init__(self, ga):
+        print(f"Leaf ga={ga}")
+
+@datatree
+class Child:
+    leaf: Node[Leaf] = Node(Leaf) # ga is injected as a non-InitVar field
+
+# prints:
+# Leaf ga=10
+child = Child(ga=10, gb=20)
+assert child.gb == 20
+assert child.ga == 10
+
+# prints:
+# Leaf ga=10
+leaf = child.leaf()
+assert leaf.gb == 20
+# ga is not available on leaf
+assert not hasattr(leaf, 'ga')
+```
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the GNU General Public License v3 - see the LICENSE file for details.
+This project is licensed under the GNU General Public License v2.1 - see the LICENSE file for details.
 ```

@@ -8,12 +8,12 @@ version = "0.1.0"
 authors = [
   { name="Gianni Mariani", email="gianni@mariani.ws" },
 ]
-description = "Wrapper for dataclasses with auto field injection, binding, self-default and more"
+description = "Wrapper for dataclasses with auto field injection, binding, self-default lamdas and more."
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
+    "License :: OSI Approved :: GNU Lesser General Public License v2.1 (LGPLv2.1)",
     "Operating System :: OS Independent",
 ]
 dependencies = [
