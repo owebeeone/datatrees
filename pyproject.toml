@@ -1,12 +1,14 @@
 [build-system]
-requires = ["hatchling"]
+requires = [
+    "hatchling",
+]
 build-backend = "hatchling.build"
 
 [project]
 name = "datatrees"
-version = "0.1.0"
+version = "0.1.6"
 authors = [
-  { name="Gianni Mariani", email="gianni@mariani.ws" },
+    { name = "Gianni Mariani", email = "gianni@mariani.ws" },
 ]
 description = "Wrapper for dataclasses with auto field injection, binding, self-default lamdas and more."
 readme = "README.md"
@@ -18,15 +20,15 @@ classifiers = [
 ]
 dependencies = [
     "frozendict>=2.3.8",
-    "sortedcollections>=2.1.0"
+    "sortedcollections>=2.1.0",
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/owebeeone/datatrees"
+Homepage = "https://github.com/owebeeone/datatrees"
 "Bug Tracker" = "https://github.com/owebeeone/datatrees/issues"
 
 [tool.hatch.envs.test]
 dependencies = [
-  "pytest>=7.0.0",
-  "pytest-cov>=4.0.0",
-] 
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
