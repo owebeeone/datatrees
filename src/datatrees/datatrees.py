@@ -225,7 +225,7 @@ class AnnotationDetails:
         '''Creates an AnnotationDetails from a name and inspect.Signature.parameters'''
         param = inspect_params[name]
 
-        anno = param.annotation()
+        anno = param.annotation
         if anno is inspect._empty:
             anno = object
 
