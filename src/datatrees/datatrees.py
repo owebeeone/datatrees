@@ -269,6 +269,8 @@ class NodeFieldMetadata(FieldMetadataBase):
     field_metadata: FieldMetadata
 
     def get_doc(self):
+        if self.node_doc is None:
+            return self.field_metadata.get_doc()
         return f'{self.node_doc}: {self.field_metadata.get_doc()}'
 
 
@@ -302,7 +304,7 @@ def field_docs(obj, field_name):
     if not metadata:
         return None
 
-    doc_metadata = metadata.get(METADATA_DOCS_NAME, None)
+    doc_metadata: FieldMetadata= metadata.get(METADATA_DOCS_NAME, None)
     if doc_metadata is None:
         return None
 
