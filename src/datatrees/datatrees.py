@@ -776,6 +776,29 @@ def get_injected_fields(clz) -> InjectedFields:
     return result
 
 
+def _merge_field_metadata(existing_field: Field, new_field: Field, anno_type, new_anno_type) -> Field:
+    """Merges metadata from two fields, preserving existing metadata but adding docs if missing.
+    Only merges docs if the annotation types match."""
+    
+    # Only merge docs if types match and existing field doesn't have docs
+    if anno_type == new_anno_type:
+        existing_metadata = existing_field.metadata
+        if METADATA_DOCS_NAME not in existing_metadata:
+            new_metadata = new_field.metadata
+            if METADATA_DOCS_NAME in new_metadata:
+                # Only create field_params copy if we actually need to merge
+                field_params = {name: getattr(existing_field, name) for name in FIELD_FIELD_NAMES}
+                if existing_metadata:
+                    existing_metadata = existing_metadata.copy()
+                    existing_metadata[METADATA_DOCS_NAME] = new_metadata[METADATA_DOCS_NAME]
+                else:
+                    existing_metadata = {METADATA_DOCS_NAME: new_metadata[METADATA_DOCS_NAME]}
+                field_params['metadata'] = existing_metadata
+                return field(**field_params)
+
+    return existing_field
+
+
 def _apply_node_fields(clz):
     '''Adds new fields from Node annotations.'''
     annotations = clz.__annotations__
@@ -815,6 +838,25 @@ def _apply_node_fields(clz):
                             anno_detail.field, anno_default.use_defaults, anno_default.node_doc
                         )
                         setattr(clz, rev_map_name, field_default)
+                        if node_default:
+                            nodes[rev_map_name] = node_default
+                else:
+                    # Field already exists - check if we need to merge metadata
+                    existing_field = getattr(clz, rev_map_name, None)
+                    if existing_field is None:
+                        # Field only exists as annotation, create a default field
+                        existing_field = field()
+                    if isinstance(existing_field, Field):
+                        field_default, node_default = _make_dataclass_field(
+                            anno_detail.field, anno_default.use_defaults, anno_default.node_doc
+                        )
+                        merged_field = _merge_field_metadata(
+                            existing_field, 
+                            field_default,
+                            new_annos[rev_map_name],
+                            anno_detail.anno_type
+                        )
+                        setattr(clz, rev_map_name, merged_field)
                         if node_default:
                             nodes[rev_map_name] = node_default
         elif isinstance(anno_default, BindingDefault):
