@@ -17,14 +17,14 @@ from datatrees import datatree, Node, BindingDefault, dtfield, field, dtargs, ov
 
 SP='[ \n\t]'
 CLEANER_REGEX=re.compile(
-    f'(?:{SP}*describe{SP}*\()?(?:{SP}*lambda{SP}*:)?((?:.|\n)*)(?:{SP}*)?[\)]')
+    rf'(?:{SP}*describe{SP}*\()?(?:{SP}*lambda{SP}*:)?((?:.|\n)*)(?:{SP}*)?[\)]')
 
 def describe(func):
     '''Prints the source code of a function/class and its result when called/constructed.'''
     src = inspect.getsource(func)
     mtch = CLEANER_REGEX.match(src)
     if mtch:
-        src = mtch.group(1).strip()
+        src = mtch.group(1).strip() + ')'
     if type(func) is type:
         print(f'\n\n***** class {func.__name__} *****')
     else:
