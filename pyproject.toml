@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "datatrees"
-version = "0.1.8"
+version = "0.1.9"
 authors = [
     { name = "Gianni Mariani", email = "gianni@mariani.ws" },
 ]
