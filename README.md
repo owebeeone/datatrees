@@ -329,7 +329,7 @@ class Source:
 
 @datatree
 class Target:
-    source: Node[Source] = dtfield(Node(Source), doc="Source configuration")
+    source: Node[Source] = Node(node_doc="Source configuration")
     
 # Documentation is preserved and combined
 assert field_docs(Target(), 'value') == "Source configuration: The source value"
