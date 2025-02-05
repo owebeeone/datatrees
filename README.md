@@ -25,23 +25,43 @@ pip install datatrees
 - **Self-Defaulting**: Fields can default based on other fields
 - **Field Documentation**: Field documentation is preserved through the injection chain
 - **Post-Init Chaining**: Automatically chain inherited __post_init__ functions.
-- **Type Safety**: Typing support for static type checkers
+- **Type Annotations**: Typing support for static type checkers
 
 Exports:
 
 - **datatree**: The decorator for creating datatrees akin to dataclasses.dataclass()
 - **dtfield**: The decorator for creating fields akin to dataclasses.field()
-- **Node**: The class for creating nodes
+- **Node**: The class for creating node factories.
 - **field_docs**: The function for getting the documentation for a datatree field
 - **get_injected_fields**: Produces documentation on how fields are injected and bound
 
 ## Basic Usage
 
+The "Node[T]" annotation is used to indicate that the field is used to inject fields from a class or parameters from a function. The default value (an instance of a Node) contains options on how the fields are injected, namely prefix, suffix etc. If the default value is not specified, the a Node object will be created with the T parameter used as the class or function to inject e.g. the following are equivalent:
+
+```python
+class A:
+    a: int = 1
+
+class B:
+    a: Node[A] = Node(A)
+
+class C:
+    a: Node[A] # Shorthand for Node(A)
+
+class D:
+    a: Node[A] = Node('a') # Shorthand for Node(A, 'a')
+
+class E:
+    a: Node[A] = dtfield(init=False) # Shorthand for Node(A, init=False)
+```
+
+Here, the annotation arg is used to specify the class or function to inject if it is not already specified.
+
 Here's an example showing how datatrees can simplify configuration for a database connection pool:
 
 ```python
 from datatrees import datatree, Node, dtfield
-from typing import Optional
 
 @datatree
 class RetryPolicy:
@@ -69,8 +89,8 @@ class ConnectionConfig:
 @datatree
 class ConnectionPool:
     # Inject all fields from ConnectionConfig and RetryPolicy
-    connection: Node = Node(ConnectionConfig, prefix="db_")  # All fields will be injected and prefixed with db_
-    retry: Node = Node(RetryPolicy)  # Fields used directly
+    connection: Node[ConnectionConfig] = Node(ConnectionConfig, prefix="db_")  # All fields will be injected and prefixed with db_
+    retry: Node[RetryPolicy] # default value is Node(RetryPolicy)
     
     min_connections: int = 5
     max_connections: int = 20
