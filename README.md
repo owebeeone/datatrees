@@ -53,10 +53,10 @@ class D:
     a: Node[A] = Node('a') # Shorthand for Node(A, 'a')
 
 class E:
-    a: Node[A] = dtfield(init=False) # Shorthand for Node(A, init=False)
+    a: Node[A] = dtfield(init=False) # Shorthand for dtfield(Node(A), init=False)
 ```
 
-Here, the annotation arg is used to specify the class or function to inject if it is not already specified.
+Notably, the annotation arg is used to specify the class to inject if it is not already specified. (This feature is only availble for datatrees v0.1.9 and later)
 
 Here's an example showing how datatrees can simplify configuration for a database connection pool:
 
