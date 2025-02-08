@@ -24,8 +24,8 @@ pip install datatrees
 - **Field Mapping**: Map fields between classes with custom naming
 - **Self-Defaulting**: Fields can default based on other fields
 - **Field Documentation**: Field documentation is preserved through the injection chain
-- **Post-Init Chaining**: Automatically chain inherited __post_init__ functions.
-- **Type Annotations**: Typing support for static type checkers
+- **Post-Init Chaining**: Automatically chain inherited __post_init__ functions
+- **Type Annotations**: Typing support for static type checkers and shorthands for Node[T]
 
 Exports:
 
@@ -39,6 +39,8 @@ Exports:
 
 The "Node[T]" annotation is used to indicate that the field is used to inject fields from a class or parameters from a function. The default value (an instance of a Node) contains options on how the fields are injected, namely prefix, suffix etc. If the default value is not specified, the a Node object will be created with the T parameter used as the class or function to inject e.g. the following are equivalent:
 
+### Various ways to specify a Node[T]
+
 ```python
 class A:
     a: int = 1
@@ -46,6 +48,7 @@ class A:
 class B:
     a: Node[A] = Node(A)
 
+# The following shorthand declarations are available in datatrees v0.1.9 and later.
 class C:
     a: Node[A] # Shorthand for Node(A)
 
@@ -56,7 +59,7 @@ class E:
     a: Node[A] = dtfield(init=False) # Shorthand for dtfield(Node(A), init=False)
 ```
 
-Notably, the annotation arg is used to specify the class to inject if it is not already specified. (This feature is only availble for datatrees v0.1.9 and later)
+Notably, in the shorthand declarations, the annotation arg is used to specify the class to inject if it is not already specified. (This feature is only availble for datatrees v0.1.9 and later)
 
 Here's an example showing how datatrees can simplify configuration for a database connection pool:
 
@@ -404,14 +407,18 @@ class Processor:
         result = self.processor()  # Uses x=10, y=2
 ```
 
-### Dataclass InitVar
+### Dataclass InitVar Fields
 
-Dataclass InitVar fieldsare supported by datatree including with chain_post_init=True.
+Dataclass InitVar fields are supported by datatree including with chain_post_init=True.
 
 The InitVar fields are passed to the __post_init__ method as parameters. Chaining post_init
 will require that the InitVar fields that are expected by the parent classes are passed
 correctly. If IniVar fields are shadowed by non IniVar fields of the same name, the 
 field will be taken from self and passed to the parent class.
+
+Although it is allowed to override a regular field with an InitVar field, it will cause 
+runtime errors when chaining post_init functions that expect the field to be an instance 
+member of self.
 
 ```python
 @datatree
