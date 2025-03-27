@@ -8,6 +8,7 @@ import unittest
 from datatrees import datatree, dtargs, override, Node, dtfield, field_docs, get_injected_fields
 from dataclasses import dataclass, field
 import builtins
+from typing import ClassVar
 
 
 @datatree
@@ -670,6 +671,148 @@ class Test(unittest.TestCase):
             a_node: Node[A] = dtfield(Node("a"))  # Equivalent to: Node[A] = dtfield(Node(A, 'a'))
 
         self.assertEqual(B().a_node(), A(a=4))
+
+
+class TestClassVar(unittest.TestCase):
+    def test_class_var_basic(self):
+        """Test basic ClassVar functionality - ClassVars should remain class variables"""
+        
+        @datatree
+        class A:
+            class_attr: ClassVar[int] = 100
+            instance_attr: int = 200
+        
+        a1 = A()
+        a2 = A(instance_attr=300)
+        
+        # ClassVar should be a class attribute
+        self.assertEqual(A.class_attr, 100)
+        self.assertEqual(a1.class_attr, 100)
+        self.assertEqual(a2.class_attr, 100)
+        
+        # Changing class attribute affects all instances
+        A.class_attr = 150
+        self.assertEqual(A.class_attr, 150)
+        self.assertEqual(a1.class_attr, 150)
+        self.assertEqual(a2.class_attr, 150)
+        
+        # Instance attr works normally
+        self.assertEqual(a1.instance_attr, 200)
+        self.assertEqual(a2.instance_attr, 300)
+    
+    def test_class_var_not_in_init(self):
+        """ClassVar fields should not be included in __init__ parameters"""
+        
+        @datatree
+        class A:
+            class_attr: ClassVar[int] = 100
+            instance_attr: int = 200
+        
+        # This should not raise an error - class_attr should not be an init parameter
+        a = A(instance_attr=300)
+        self.assertEqual(a.instance_attr, 300)
+        
+        # Trying to initialize a ClassVar should raise TypeError
+        with self.assertRaises(TypeError):
+            A(class_attr=400, instance_attr=300)
+    
+    def test_class_var_not_injected(self):
+        """ClassVar fields should not be injected by Nodes"""
+        
+        @datatree
+        class A:
+            class_attr: ClassVar[int] = 100
+            instance_attr: int = 200
+        
+        @datatree
+        class B:
+            a_node: Node[A] = Node(A)
+        
+        b = B()
+        
+        # B should not have class_attr injected as an instance attribute
+        self.assertFalse(hasattr(B, 'class_attr'))
+        
+        # But B instances can access A's class_attr through the class
+        self.assertEqual(b.a_node().class_attr, 100)
+        
+        # instance_attr should be injected normally
+        self.assertEqual(b.instance_attr, 200)
+        
+        # Modifying injected instance_attr affects created instances
+        b.instance_attr = 300
+        self.assertEqual(b.a_node().instance_attr, 300)
+        
+        # Class attributes should not be affected by injection
+        A.class_attr = 150
+        self.assertEqual(b.a_node().class_attr, 150)
+    
+    def test_class_var_with_annotations(self):
+        """Test ClassVar with different types of annotations"""
+        
+        @datatree
+        class A:
+            int_class_attr: ClassVar[int] = 100
+            list_class_attr: ClassVar[list] = [1, 2, 3]
+            dict_class_attr: ClassVar[dict] = {"key": "value"}
+            simple_class_attr: ClassVar = "no type parameter"
+            instance_attr: int = 200
+        
+        a = A()
+        
+        # All ClassVar types should be handled correctly
+        self.assertEqual(A.int_class_attr, 100)
+        self.assertEqual(A.list_class_attr, [1, 2, 3])
+        self.assertEqual(A.dict_class_attr, {"key": "value"})
+        self.assertEqual(A.simple_class_attr, "no type parameter")
+        
+        # Instance attribute works normally
+        self.assertEqual(a.instance_attr, 200)
+
+    def test_class_var_inheritance_and_node_boundaries(self):
+        """Test ClassVar fields with inheritance and across Node boundaries"""
+        
+        @datatree
+        class Parent:
+            parent_class_attr: ClassVar[int] = 100
+            parent_instance_attr: int = 200
+        
+        @datatree
+        class Child(Parent):
+            child_class_attr: ClassVar[int] = 300
+            child_instance_attr: int = 400
+        
+        @datatree
+        class Container:
+            child_node: Node[Child] = Node(Child)
+            # This should not inject parent_class_attr or child_class_attr
+        
+        container = Container()
+        child = container.child_node()
+        
+        # Verify class attributes
+        self.assertEqual(Parent.parent_class_attr, 100)
+        self.assertEqual(Child.parent_class_attr, 100)
+        self.assertEqual(Child.child_class_attr, 300)
+        
+        # ClassVar fields should not be injected into Container
+        self.assertFalse(hasattr(Container, 'parent_class_attr'))
+        self.assertFalse(hasattr(Container, 'child_class_attr'))
+        
+        # But instance attributes should be injected
+        self.assertEqual(container.parent_instance_attr, 200)
+        self.assertEqual(container.child_instance_attr, 400)
+        
+        # Child should have both instance attributes
+        self.assertEqual(child.parent_instance_attr, 200)
+        self.assertEqual(child.child_instance_attr, 400)
+        
+        # Modifying Container instance attrs should affect created Child instances
+        container.parent_instance_attr = 250
+        container.child_instance_attr = 450
+        new_child = container.child_node()
+        self.assertEqual(new_child.parent_instance_attr, 250)
+        self.assertEqual(new_child.child_instance_attr, 450)
 
 
 if __name__ == "__main__":

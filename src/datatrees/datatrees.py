@@ -141,6 +141,7 @@ from typing import (
     get_args,
     get_origin,
     ParamSpec,
+    ClassVar,
 )
 from frozendict import frozendict
 from sortedcollections import OrderedSet
@@ -571,6 +572,9 @@ class Node(Generic[_T]):
             typ = object
         elif isinstance(typ, InitVar):
             typ = typ.type
+        # Skip ClassVar fields by unwrapping them to their underlying type
+        elif _is_classvar(typ):
+            typ = get_args(typ)[0] if get_args(typ) else object
 
         return AnnotationDetails(dataclass_field, typ)
 
@@ -857,6 +861,11 @@ def _apply_node_fields(clz):
     # interspersed between the Node annotated fields.
     nodes = {}
     for name, anno in annotations.items():
+        # Skip ClassVar fields - they should not be processed as Node fields or have injections
+        if _is_classvar(anno):
+            new_annos[name] = anno
+            continue
+            
         new_annos[name] = anno
         if not hasattr(clz, name):
             anno_origin = get_origin(anno)
@@ -1245,6 +1254,13 @@ def _is_initvar(ann_type: Any) -> bool:
     return ann_type is InitVar or type(ann_type) is InitVar
 
 
+def _is_classvar(ann_type: Any) -> bool:
+    """
+    Returns True if 'ann_type' is exactly 'ClassVar' or 'ClassVar[...]'.
+    """
+    return get_origin(ann_type) is ClassVar
+
+
 def _get_post_init_parameter_map(
     clz: type, post_init_new_name: str, post_init_orig_name: str
 ) -> dict[int, list[_PostInitParameter]]:
@@ -1291,6 +1307,9 @@ def _get_post_init_parameter_map(
     cls_annotations = clz.__dict__.get("__annotations__", {})
 
     for name, typ in cls_annotations.items():
+        # Skip ClassVar fields - they are not instance fields
+        if _is_classvar(typ):
+            continue
         fields[name] = (None, _PostInitParameter(name, not _is_initvar(typ)))
 
     result: dict[type, tuple[list[_PostInitParameter], str]] = {}
