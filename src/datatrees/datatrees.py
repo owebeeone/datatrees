@@ -160,6 +160,7 @@ DATATREE_POST_INIT_SENTIENEL_NAME = "__is_datatree_override_post_init__"
 _T = TypeVar("_T")  # Generic type variable for Node[T] fields.
 _P = ParamSpec("_P")
 
+
 class ReservedFieldNameException(Exception):
     f"""The name '{OVERRIDE_FIELD_NAME}' is reserved for use by datatree."""
 
@@ -865,12 +866,17 @@ def _apply_node_fields(clz):
         if _is_classvar(anno):
             new_annos[name] = anno
             continue
-            
+
         new_annos[name] = anno
         if not hasattr(clz, name):
             anno_origin = get_origin(anno)
             anno_args = get_args(anno)
-            if anno_origin and issubclass(anno_origin, Node) and len(anno_args) == 1:
+            if (
+                anno_origin
+                and isinstance(anno_origin, type)
+                and issubclass(anno_origin, Node)
+                and len(anno_args) == 1
+            ):
                 # This is a Node but the default value is not provided.
                 # Use this as a short-hand way to specify a Node field.
                 default_value = anno_origin(anno_args[0])
