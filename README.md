@@ -29,7 +29,7 @@ pip install datatrees
 
 Exports:
 
-- **datatree**: The decorator for creating datatrees akin to dataclasses.dataclass()
+- **datatree**: The decorator for creating datatrees akin to dataclasses.dataclass(). It accepts all standard `dataclasses.dataclass` arguments (e.g., `init`, `repr`, `eq`, `order`, `frozen`, `unsafe_hash`, `match_args`, `kw_only`, `slots`, `weakref_slot`) in addition to datatrees-specific parameters like `chain_post_init`.
 - **dtfield**: The decorator for creating fields akin to dataclasses.field()
 - **Node**: The class for creating node factories.
 - **field_docs**: The function for getting the documentation for a datatree field
@@ -198,7 +198,7 @@ assert rect.area == 100  # Calculated after initialization
 
 The `chain_post_init` parameter allows proper initialization of inherited classes. When enabled, the `__post_init__` methods are called in reverse MRO (Method Resolution Order) order (i.e least derived class first).
 
-In complex multiple-inheritance or “diamond” inheritance scenarios, each class in the MRO is initialized only once, so repeated classes in the inheritance graph do not result in multiple calls to the same `__post_init__`.
+In complex multiple-inheritance or "diamond" inheritance scenarios, each class in the MRO is initialized only once, so repeated classes in the inheritance graph do not result in multiple calls to the same `__post_init__`.
 
 ```python
 @datatree(chain_post_init=True)
@@ -292,6 +292,7 @@ The Node class supports several configuration options:
 Node(
     class_or_func,          # Class or function to bind
     *field_names,           # Direct field mappings
+    use_defaults=True,      # Use defaults from the source class/function
     prefix='',              # Prefix for injected fields
     suffix='',              # Suffix for injected fields
     expose_all=False,       # Expose all fields
@@ -299,6 +300,7 @@ Node(
     expose_if_avail=None,   # Fields to expose if they exist
     exclude=(),             # Fields to exclude
     node_doc=None,          # Documentation for the node
+    default_if_missing=MISSING # Default value if an injected field lacks one (e.g. None)
 )
 ```
 
@@ -312,6 +314,8 @@ To explicitly expose a field, simply include it in the field_names or a mapping 
  s: Node[Source] = Node(Source, 'field_a', 'field_b', {'field_c': 'c', 'field_d': 'd'})
 ```
 
+If `use_defaults` is `True` (the default), default values from the source class or function are used for injected fields. If `False`, these defaults are ignored (unless a value is provided via `default_if_missing` or the field is explicitly initialized).
+
 If expose_all is True, all fields are injected even if they are not nominated or mapped.
 
 If expose_if_avail is set, and the field is available in the constructor it is injected.
@@ -320,6 +324,7 @@ If preserve is set, the field names are preserved in the injected class except i
 
 If exclude is set, the fields in the exclude list are not injected.
 
+If `default_if_missing` is set (e.g. to `None`), injected fields that do not have a default value will be assigned this value. This is useful for ensuring that all injected fields have a defined value, even if the source class or function does not provide a default. By default, fields without defaults will cause an error during instantiation if a value is not provided. Furthermore, this feature helps to avoid errors reported by dataclasses regarding the order of fields (fields without default values must precede fields with default values). When injecting fields from multiple classes, it can be impossible to satisfy this ordering requirement without duplicating and manually defaulting each field; `default_if_missing` provides a cleaner solution to this problem.
 
 ## Field Documentation
 
