@@ -813,6 +813,39 @@ class TestClassVar(unittest.TestCase):
         new_child = container.child_node()
         self.assertEqual(new_child.parent_instance_attr, 250)
         self.assertEqual(new_child.child_instance_attr, 450)
+        
+    def test_class_var_default_if_missing(self):
+        @datatree
+        class A:
+            v1: int
+            v2: int = dtfield(default_factory=lambda: 100)
+            v3: int = dtfield(self_default=lambda s: s.v1 + s.v2)
+            v4: int = 4
+            class_attr: ClassVar[int] = 100
+            
+        with self.assertRaises(TypeError):
+            @datatree
+            class B:
+                bv1: int
+                bv2: int = 2
+                a_node: Node[A]
+
+        @datatree
+        class B:
+            bv1: int
+            bv2: int = 2
+            a_node: Node[A] = Node(A, default_if_missing=42)
+
+        b = B(bv1=22)
+        a = b.a_node()
+        self.assertEqual(b.bv1, 22)
+        self.assertEqual(b.v2, 100)
+        self.assertFalse(hasattr(b, 'v3'))
+        self.assertEqual(b.v4, 4)
+        self.assertFalse(hasattr(b, 'class_attr'))
+        self.assertEqual(a.v1, 42)
+        self.assertEqual(a.v3, 142)
+            
 
 
 if __name__ == "__main__":

@@ -127,6 +127,7 @@ bindings.
 
 """
 
+import copy
 from dataclasses import dataclass, field, Field, InitVar, MISSING, _FIELD_INITVAR
 from functools import wraps
 import sys
@@ -361,6 +362,10 @@ class _ClzOrFuncWrapper:
     def __repr__(self):
         return self.clz_or_func.__name__
 
+class MISSING_PARAM_TYPE:
+    pass
+
+MISSING_PARAM = MISSING_PARAM_TYPE()
 
 @dataclass(frozen=True)
 class Node(Generic[_T]):
@@ -381,11 +386,14 @@ class Node(Generic[_T]):
         doc="Forces the mapping of all fields even if the expose_spec "
         " excluded the class or function parameter name."
     )
+    expose_if_avail=dtfield(doc="Expose fields if they are available."),
+    preserve=dtfield(doc="Preserve fields from the class or function."),
+    exclude=dtfield(doc="Exclude fields from the class or function."),
     init_signature: tuple = field(default=None, repr=False)
     expose_map: dict = field(default=None, repr=False)
     expose_rev_map: dict = field(default=None, repr=False)
     node_doc: str = dtfield(None, doc="Field documentation.")
-
+    default_if_missing: Any = MISSING_PARAM
     # The default value for the preserve init parameter. Derived classes can override.
     # This allows for application specific Node types that have a set of
     # field names that should be preserved from prefix and suffix mapping.
@@ -407,6 +415,7 @@ class Node(Generic[_T]):
         preserve=None,
         exclude=(),
         node_doc: str = None,
+        default_if_missing: Any = MISSING_PARAM,
     ):
         """Initialize a Node instance for parameter binding.
 
@@ -429,6 +438,10 @@ class Node(Generic[_T]):
             exclude (tuple, optional): A set of field names to exclude that would otherwise
                 be included by expose_all. Defaults to ().
             node_doc (str, optional): Documentation for the node field. Defaults to None.
+            default_if_missing (Any, optional): The value to use if an injected field has
+                no default value. Defaults to MISSING_PARAM. Usually set this to None to 
+                as a generic not set value cut some other application specific value can 
+                be used. TODO Maybe add type specific default_if_missing values.
         """
         if preserve is None:
             preserve = self.DEFAULT_PRESERVE_SET
@@ -456,7 +469,7 @@ class Node(Generic[_T]):
         _field_assign(self, "preserve", preserve)
         _field_assign(self, "expose_if_avail", expose_if_avail)
         _field_assign(self, "exclude", exclude)
-
+        _field_assign(self, "default_if_missing", default_if_missing)
         if clz_or_func:
             self._initialize_node(clz_or_func)
 
@@ -561,7 +574,13 @@ class Node(Generic[_T]):
         _field_assign(self, "expose_map", frozendict(expose_dict))
         _field_assign(self, "expose_rev_map", frozendict(expose_rev_dict))
 
-    def make_anno_detail(self, from_id, dataclass_field, annotations):
+    def make_anno_detail(self, from_id: str, dataclass_field: Field, annotations: dict[str, Any]):
+        if self.default_if_missing is not MISSING_PARAM:
+            if dataclass_field.default is MISSING \
+                and dataclass_field.default_factory is MISSING:
+                dataclass_field = copy.copy(dataclass_field)
+                dataclass_field.default = self.default_if_missing
+                
         if from_id in annotations:
             typ = annotations[from_id]
         else:
@@ -1179,6 +1198,7 @@ def datatree(
     weakref_slot=False,
     chain_post_init=False,
     provide_override_field=False,
+    default_if_missing=MISSING,
 ) -> Callable[[type[_T]], type[_T]]:
     """Python decorator similar to dataclasses.dataclass providing parameter injection,
     injection, binding and overrides for parameters deeper inside a tree of objects.
