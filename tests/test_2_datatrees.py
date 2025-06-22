@@ -5,6 +5,7 @@ Created on 2024-01-20
 '''
 
 import unittest
+from typing import Any, Optional
 
 from frozendict import frozendict
 from datatrees import datatree, Node
@@ -17,10 +18,10 @@ class TestInitVar(unittest.TestCase):
 
         @datatree
         class A:
-            init_param: InitVar[str] = None
+            init_param: InitVar[str | None] = None
             value: str = ''
 
-            def __post_init__(self, init_param):
+            def __post_init__(self, init_param: Optional[str]):
                 if init_param:
                     self.value = f"Initialized with {init_param}"
 
@@ -36,12 +37,12 @@ class TestInitVar(unittest.TestCase):
 
         @datatree
         class Config:
-            name: InitVar[str] = None
-            value: InitVar[int] = None
+            name: InitVar[str | None] = None
+            value: InitVar[int | None] = None
             description: str = ''
             total: int = 0
 
-            def __post_init__(self, name, value):
+            def __post_init__(self, name: Optional[str], value: Optional[int]):
                 if name:
                     self.description = f"Name: {name}"
                 if value:
@@ -60,7 +61,7 @@ class TestInitVar(unittest.TestCase):
             verbose: InitVar[bool] = field(default=True, repr=False)
             log_level: str = 'INFO'
 
-            def __post_init__(self, debug, verbose):
+            def __post_init__(self, debug: bool, verbose: bool):
                 if debug:
                     self.log_level = 'DEBUG'
                 elif not verbose:
@@ -77,28 +78,28 @@ class TestInitVar(unittest.TestCase):
 
         @datatree(chain_post_init=True)
         class Base:
-            base_init: InitVar[str] = None
+            base_init: InitVar[str | None] = None
             base_value: str = ''
 
-            def __post_init__(self, base_init):
+            def __post_init__(self, base_init: str | None):
                 if base_init:
                     self.base_value = f"Base: {base_init}"
 
         @datatree(chain_post_init=True)
         class Middle(Base):
-            middle_init: InitVar[str] = None
+            middle_init: InitVar[str | None] = None
             middle_value: str = ''
 
-            def __post_init__(self, base_init, middle_init):
+            def __post_init__(self, middle_init: str | None, **kwargs: Any):
                 if middle_init:
                     self.middle_value = f"Middle: {middle_init}"
 
         @datatree(chain_post_init=True)
         class Derived(Middle):
-            derived_init: InitVar[str] = None
+            derived_init: InitVar[str | None] = None
             derived_value: str = ''
 
-            def __post_init__(self, base_init, middle_init, derived_init):
+            def __post_init__(self, derived_init: str | None, **kwargs: Any):
                 if derived_init:
                     self.derived_value = f"Derived: {derived_init}"
 
@@ -113,27 +114,27 @@ class TestInitVar(unittest.TestCase):
 
         @datatree
         class Inner:
-            setup: InitVar[dict] = None
-            config: dict = field(default_factory=dict)
+            setup: InitVar[Optional[dict[str, Any]]] = None
+            config: dict[str, Any] = field(default_factory=dict)
 
-            def __post_init__(self, setup):
+            def __post_init__(self, setup: Optional[dict[str, Any]]):
                 if setup:
                     self.config.update(setup)
 
         @datatree
         class Middle:
-            inner_node: Node = Node(Inner, 'setup')
-            settings: InitVar[dict] = None
+            inner_node: Node[Inner] = Node(Inner, "setup")
+            settings: InitVar[Optional[dict[str, Any]]] = None
 
-            def __post_init__(self, settings):
+            def __post_init__(self, settings: Optional[dict[str, Any]]):
                 self.inner = self.inner_node(setup=settings)
 
         @datatree
         class Outer:
-            middle_node: Node = Node(Middle, 'settings')
-            config: InitVar[dict] = None
+            middle_node: Node[Middle] = Node(Middle, "settings")
+            config: InitVar[Optional[dict[str, Any]]] = None
 
-            def __post_init__(self, config):
+            def __post_init__(self, config: Optional[dict[str, Any]]):
                 self.middle = self.middle_node(settings=config)
 
         test_config = {'key': 'value'}
@@ -148,10 +149,10 @@ class TestInitVar(unittest.TestCase):
 
         @datatree
         class ConfigHolder:
-            config: InitVar[dict] = frozendict({'default': 'config'})
-            settings: dict = field(default_factory=dict)
+            config: InitVar[dict[str, Any]] = frozendict({'default': 'config'})
+            settings: dict[str, Any] = field(default_factory=dict)
 
-            def __post_init__(self, config):
+            def __post_init__(self, config: dict[str, Any]):
                 self.settings.update(config)
 
         c1 = ConfigHolder()
@@ -165,17 +166,19 @@ class TestInitVar(unittest.TestCase):
 
         @datatree
         class Config:
-            init_param: InitVar[str] = None
+            init_param: InitVar[Optional[str]] = None
             other_param: InitVar[int] = 0
             value: str = ''
 
-            def __post_init__(self, init_param, other_param):
+            def __post_init__(self, init_param: Optional[str], other_param: int):
                 if init_param:
                     self.value = f"{init_param}-{other_param}"
 
         @datatree
         class Wrapper:
-            config_node: Node = Node(Config, 'init_param', {'other_param': 'count'}, prefix='cfg_')
+            config_node: Node[Config] = Node(
+                Config, "init_param", {"other_param": "count"}, prefix="cfg_"
+            )
             cfg_init_param: str = "default"
             count: int = 42
 
@@ -190,26 +193,26 @@ class TestInitVar(unittest.TestCase):
 
         @datatree
         class Base:
-            setup: InitVar[str] = None
+            setup: InitVar[Optional[str]] = None
             name: str = ''
 
-            def __post_init__(self, setup):
+            def __post_init__(self, setup: Optional[str]):
                 if setup:
                     self.name = f"Base-{setup}"
 
         @datatree
         class Extension:
-            init: InitVar[str] = None
+            init: InitVar[Optional[str]] = None
             value: str = ''
 
-            def __post_init__(self, init):
+            def __post_init__(self, init: Optional[str]):
                 if init:
                     self.value = f"Ext-{init}"
 
         @datatree
         class Container:
-            base_node: Node = Node(Base, 'setup')
-            ext_node: Node = Node(Extension, {'init': 'setup'})
+            base_node: Node[Base] = Node(Base, "setup")
+            ext_node: Node[Extension] = Node(Extension, {"init": "setup"})
             setup: str = "default"
 
             def __post_init__(self):
@@ -225,10 +228,10 @@ class TestInitVar(unittest.TestCase):
 
         @datatree(frozen=True)
         class FrozenConfig:
-            init_param: InitVar[str] = None
+            init_param: InitVar[Optional[str]] = None
             value: str = ''
 
-            def __post_init__(self, init_param):
+            def __post_init__(self, init_param: Optional[str]):
                 # Need to use object.__setattr__ for frozen classes
                 if init_param:
                     object.__setattr__(self, 'value', f"Frozen-{init_param}")

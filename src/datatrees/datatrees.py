@@ -128,7 +128,13 @@ bindings.
 """
 
 import copy
-from dataclasses import dataclass, field, Field, InitVar, MISSING, _FIELD_INITVAR
+from dataclasses import (
+    dataclass,
+    field,
+    Field,
+    InitVar,
+    MISSING,
+)
 from functools import wraps
 import sys
 from typing import (
@@ -143,13 +149,27 @@ from typing import (
     get_origin,
     ParamSpec,
     ClassVar,
+    TYPE_CHECKING,
+    Iterable,
+    Mapping,
 )
+
 from frozendict import frozendict
 from sortedcollections import OrderedSet
 from types import FunctionType
 import inspect
 import builtins
 import re
+from abc import ABC, abstractmethod
+try:
+    from typing import get_type_hints
+except ImportError:
+    pass
+if TYPE_CHECKING:
+    try:
+        from typing import dataclass_transform  # Python 3.11+
+    except ImportError:
+        from typing_extensions import dataclass_transform  # Python < 3.11
 
 FIELD_FIELD_NAMES = tuple(inspect.signature(field).parameters.keys())
 DATATREE_SENTIENEL_NAME = "__datatree_nodes__"
@@ -157,6 +177,7 @@ OVERRIDE_FIELD_NAME = "override"  # Deprecated feature.
 METADATA_DOCS_NAME = "dt_docs"
 ORIGINAL_POST_INIT_NAME = "__original_post_init__"  # User provided post_init renamed to this.
 DATATREE_POST_INIT_SENTIENEL_NAME = "__is_datatree_override_post_init__"
+_FIELD_INITVAR = "InitVar"
 
 _T = TypeVar("_T")  # Generic type variable for Node[T] fields.
 _P = ParamSpec("_P")
@@ -195,40 +216,51 @@ class NodeHasNoClzOrFunc(Exception):
 
 
 class _OrderedSet(OrderedSet):
-    def union(self, other):
+    def union(self, other: Iterable[Any]) -> "_OrderedSet":
         result = _OrderedSet(self)
         for item in other:
-            result.add(item)
+            result.add(item)  # type: ignore
         return result
 
-    def intersection(self, other):
+    def intersection(self, other: Iterable[Any]) -> "_OrderedSet":
         result = _OrderedSet()
         for item in self:
             if item in other:
-                result.add(item)
+                result.add(item)  # type: ignore
         return result
 
 
-def _update_name_map(clz, name_map, from_name, to_value, description):
+def _update_name_map(
+    clz: type, name_map: dict[str, Any], from_name: str, to_value: Any, description: str
+):
     """Updates the given map but does not allow collision."""
     if from_name in name_map:
         raise NameCollision(f"{description} {from_name} specified multiple times in {clz.__name__}")
     name_map[from_name] = to_value
 
 
-def _update_name_multi_map(clz, name_map, from_name, to_value):
+def _update_name_multi_map(
+    clz: type, name_map: dict[str, Any], from_name: str, to_value: Any
+):
     """Updates the given multi-valued map."""
     if from_name in name_map:
         cur = name_map[from_name]
         name_map[from_name] = cur + (to_value,)
-    name_map[from_name] = (to_value,)
+    else:
+        name_map[from_name] = (to_value,)
 
 
-def _dupes_and_allset(itr):
+def _dupes_and_allset(itr: Iterable[Any]) -> tuple[_OrderedSet, _OrderedSet]:
     """Returns a tuple containing a set of duplicates and a set of all non
     duplicated items in itr."""
     seen = _OrderedSet()
-    return _OrderedSet((x for x in itr if x in seen or seen.add(x))), seen
+    dupes = _OrderedSet()
+    for x in itr:
+        if x in seen:
+            dupes.add(x)  # type: ignore
+        else:
+            seen.add(x)  # type: ignore
+    return dupes, seen
 
 
 @dataclass
@@ -239,7 +271,7 @@ class AnnotationDetails:
     anno_type: type
 
     @classmethod
-    def from_init_param(cls, name, inspect_params):
+    def from_init_param(cls, name: str, inspect_params: Mapping[str, inspect.Parameter]):
         """Creates an AnnotationDetails from a name and inspect.Signature.parameters"""
         param = inspect_params[name]
 
@@ -256,25 +288,26 @@ class AnnotationDetails:
         return AnnotationDetails(this_field, anno)
 
 
-def _field_assign(obj, name, value):
+def _field_assign(obj: object, name: str, value: Any):
     """Field assignment that works on frozen objects."""
     builtins.object.__setattr__(obj, name, value)
 
 
-class FieldMetadataBase:
+class FieldMetadataBase(ABC):
     """Datatree metadata object."""
 
-    def get_doc(self):
-        raise IllegalMetadataClass(f"Class must override get_doc() {self.__class__.__name__}")
+    @abstractmethod
+    def get_doc(self) -> str | None:
+        pass
 
 
 @dataclass(frozen=True)
 class FieldMetadata(FieldMetadataBase):
     """Provides a docstring for a field."""
 
-    doc: str
+    doc: str | None
 
-    def get_doc(self):
+    def get_doc(self) -> str | None:
         """Returns the docstring."""
         return self.doc
 
@@ -283,10 +316,10 @@ class FieldMetadata(FieldMetadataBase):
 class NodeFieldMetadata(FieldMetadataBase):
     """Provides a docstring for a Node field."""
 
-    node_doc: str
+    node_doc: str | None
     field_metadata: FieldMetadata
 
-    def get_doc(self):
+    def get_doc(self) -> str | None:
         if self.node_doc is None:
             return self.field_metadata.get_doc()
         return f"{self.node_doc}: {self.field_metadata.get_doc()}"
@@ -295,7 +328,7 @@ class NodeFieldMetadata(FieldMetadataBase):
 CLEANER_REGEX = re.compile("(\n?[ \t][ \t]+)+")
 
 
-def _get_abbreviated_source(func, max_size=75):
+def _get_abbreviated_source(func: Callable[..., Any], max_size: int = 75) -> str:
     """Returns stripped abbreviated source of a function (or lambda)."""
     src = inspect.getsource(func).strip()
     # Remove interspersed white space chunks.
@@ -304,35 +337,39 @@ def _get_abbreviated_source(func, max_size=75):
 
 
 @dataclass(frozen=True, repr=False)
-class BindingDefault:
+class BindingDefault(Generic[_T]):
     """Like the dataclass field default_factory parameter but called after
     the regular __init__ function is finished and with the class instance
     (self) as the first parameter."""
 
-    self_default: FunctionType
+    self_default: Callable[[Any], _T]
 
     def __repr__(self):
         return f"{self.__class__.__name__}({_get_abbreviated_source(self.self_default)})"
 
 
-def field_docs(obj, field_name):
+def field_docs(obj: object, field_name: str) -> str | None:
     """Return the documentation for a field. Returns None if not provided."""
-    metadata = obj.__dataclass_fields__[field_name].metadata
+    metadata = obj.__dataclass_fields__[field_name].metadata # type: ignore
 
     if not metadata:
         return None
 
-    doc_metadata: FieldMetadata = metadata.get(METADATA_DOCS_NAME, None)
+    doc_metadata: FieldMetadata = metadata.get(METADATA_DOCS_NAME, None) # type: ignore
     if doc_metadata is None:
         return None
 
-    return doc_metadata.get_doc()
+    return doc_metadata.get_doc() # type: ignore
 
 
 _Node = None  # Forward declaration for Node. This is set later.
 
 
-def dtfield(default=MISSING, doc=None, self_default=None, init=MISSING, **kwargs):
+def dtfield(default: Any = MISSING, 
+            doc: str | None = None, 
+            self_default: Callable[[Any], Any] | None = None, 
+            init: bool | object = MISSING, 
+            **kwargs: dict[str, Any]) -> Field[object]:
     """Like dataclasses.field but also supports doc parameter.
     Args:
       default: The default value for the field.
@@ -352,12 +389,12 @@ def dtfield(default=MISSING, doc=None, self_default=None, init=MISSING, **kwargs
         types = (_Node, BindingDefault) if _Node is not None else BindingDefault
         init = not isinstance(default, types)
 
-    return field(**kwargs, default=default, metadata=metadata, init=init)
+    return field(**kwargs, default=default, metadata=metadata, init=init) # type: ignore
 
 
 @dataclass(frozen=True, repr=False)
-class _ClzOrFuncWrapper:
-    clz_or_func: type
+class _ClzOrFuncWrapper(Generic[_T]):
+    clz_or_func: type[_T] | Callable[..., _T]   
 
     def __repr__(self):
         return self.clz_or_func.__name__
@@ -374,47 +411,45 @@ class Node(Generic[_T]):
     composition class.
     """
 
-    clz_or_func: type[_T] | Callable[..., _T] = dtfield(
-        doc="A class or function for parameter binding."
+    clz_or_func: type[_T] | Callable[..., _T] | _ClzOrFuncWrapper[_T] | None = field(
+        default=None, repr=False
     )
-    use_defaults: bool = dtfield(
-        doc="Allows use of defaults otherwise defaults should be specified elsewhere."
-    )
-    suffix: str = dtfield(doc="Suffix to apply to injected field names.")
-    prefix: str = dtfield(doc="Prefix to apply to injected field names.")
-    expose_all: bool = dtfield(
-        doc="Forces the mapping of all fields even if the expose_spec "
-        " excluded the class or function parameter name."
-    )
-    expose_if_avail=dtfield(doc="Expose fields if they are available."),
-    preserve=dtfield(doc="Preserve fields from the class or function."),
-    exclude=dtfield(doc="Exclude fields from the class or function."),
-    init_signature: tuple = field(default=None, repr=False)
-    expose_map: dict = field(default=None, repr=False)
-    expose_rev_map: dict = field(default=None, repr=False)
-    node_doc: str = dtfield(None, doc="Field documentation.")
-    default_if_missing: Any = MISSING_PARAM
+    use_defaults: bool = field(default=True)
+    suffix: str = field(default="")
+    prefix: str = field(default="")
+    expose_all: bool = field(default=False)
+    expose_if_avail: set[str] = field(default_factory=set)
+    preserve: set[str] | frozenset[str] | None = field(default_factory=set)
+    exclude: set[str] = field(default_factory=set)
+    init_signature: inspect.Signature | None = field(default=None, repr=False)
+    expose_map: dict[str, str] = field(default_factory=dict, repr=False)
+    expose_rev_map: dict[str, Any] = field(default_factory=dict, repr=False)
+    node_doc: str | None = field(default=None)
+    default_if_missing: Any = field(default=MISSING_PARAM)
+    expose_spec: list[str | dict[str, str]] = field(default_factory=list, repr=False)
+    hints_cache: dict[type, dict[str, Any]] = field(default_factory=dict, repr=False)
+
     # The default value for the preserve init parameter. Derived classes can override.
     # This allows for application specific Node types that have a set of
     # field names that should be preserved from prefix and suffix mapping.
-    DEFAULT_PRESERVE_SET = frozendict()
+    DEFAULT_PRESERVE_SET: ClassVar[frozenset[str]] = frozenset()
     # The default value for the expose_if_avail init parameter. Derived classes can override.
     # Similar to DEFAULT_PRESERVE_SET, allows for application specific Node type.
-    DEFAULT_EXPOSE_IF_AVAIL = frozendict()
+    DEFAULT_EXPOSE_IF_AVAIL: ClassVar[set[str]] = set()
 
     ALT_DEFAULT_ALLOW_SET = None
 
     def __init__(
         self,
-        *expose_spec,
-        use_defaults=True,
-        suffix="",
-        prefix="",
-        expose_all=None,
-        expose_if_avail=None,
-        preserve=None,
-        exclude=(),
-        node_doc: str = None,
+        *expose_spec: Any,
+        use_defaults: bool = True,
+        suffix: str = "",
+        prefix: str = "",
+        expose_all: bool | None = None,
+        expose_if_avail: set[str] | None = None,
+        preserve: set[str] | frozenset[str] | None = None,
+        exclude: set[str] = set(),
+        node_doc: str | None = None,
         default_if_missing: Any = MISSING_PARAM,
     ):
         """Initialize a Node instance for parameter binding.
@@ -449,8 +484,9 @@ class Node(Generic[_T]):
         if expose_if_avail is None:
             expose_if_avail = self.DEFAULT_EXPOSE_IF_AVAIL
 
+        clz_or_func: Any
         if expose_spec:
-            if isinstance(expose_spec[0], (str, dict)):
+            if isinstance(expose_spec[0], (str, dict)) or expose_spec[0] is None:
                 clz_or_func = None
             else:
                 clz_or_func = expose_spec[0]
@@ -470,20 +506,29 @@ class Node(Generic[_T]):
         _field_assign(self, "expose_if_avail", expose_if_avail)
         _field_assign(self, "exclude", exclude)
         _field_assign(self, "default_if_missing", default_if_missing)
+        _field_assign(self, "hints_cache", dict())
         if clz_or_func:
-            self._initialize_node(clz_or_func)
+            self._initialize_node(self.hints_cache, clz_or_func)
 
-    def _inititalize_node_with_annotation(self, anno_detail):
-        if hasattr(self, "clz_or_func"):
+    def _inititalize_node_with_annotation(self, 
+                                          hints_cache: dict[type, dict[str, Any]], 
+                                          anno_detail: type):
+        if self.clz_or_func is not None:
             return
         anno_args = get_args(anno_detail)
         if anno_args:
-            self._initialize_node(anno_args[0])
+            self._initialize_node(hints_cache, anno_args[0])
         else:
             raise NodeHasNoClzOrFunc(f"Node[{anno_detail}] has no clz_or_func parameter.")
 
-    def _initialize_node(self, clz_or_func):
+    def _initialize_node(self, 
+                         hints_cache: dict[type, dict[str, Any]], 
+                         clz_or_func: type[_T] | Callable[..., _T]):
+        if self.init_signature is not None:
+            return
+
         _field_assign(self, "init_signature", inspect.signature(clz_or_func))
+        assert self.init_signature is not None
 
         _field_assign(self, "clz_or_func", _ClzOrFuncWrapper(clz_or_func))
         fields_specified = tuple(f for f in self.expose_spec if isinstance(f, str))
@@ -510,8 +555,8 @@ class Node(Generic[_T]):
                 all_fields.intersection(self.expose_if_avail) - all_specified
             )
 
-        expose_dict = {}
-        expose_rev_dict = {}
+        expose_dict: dict[str, str] = {}
+        expose_rev_dict: dict[str, Any] = {}
 
         # If we have a dataclass decorated class, use the __dataclass_fields__
         # to fill in this class,
@@ -528,7 +573,9 @@ class Node(Generic[_T]):
                     )
                 _update_name_map(clz_or_func, expose_dict, from_id, to_id, "Field name")
                 anno_detail = self.make_anno_detail(
-                    from_id, clz_or_func.__dataclass_fields__[from_id], clz_or_func.__annotations__
+                    from_id, 
+                    clz_or_func.__dataclass_fields__[from_id], 
+                    get_annotations(hints_cache, clz_or_func)
                 )
                 _update_name_multi_map(clz_or_func, expose_rev_dict, to_id, anno_detail)
 
@@ -544,7 +591,7 @@ class Node(Generic[_T]):
                     anno_detail = self.make_anno_detail(
                         from_id,
                         clz_or_func.__dataclass_fields__[from_id],
-                        clz_or_func.__annotations__,
+                        get_annotations(hints_cache, clz_or_func),
                     )
                     _update_name_multi_map(clz_or_func, expose_rev_dict, to_id, anno_detail)
         else:  # Not a dataclass type, can be a function.
@@ -576,8 +623,10 @@ class Node(Generic[_T]):
 
     def make_anno_detail(self, from_id: str, dataclass_field: Field, annotations: dict[str, Any]):
         if self.default_if_missing is not MISSING_PARAM:
-            if dataclass_field.default is MISSING \
-                and dataclass_field.default_factory is MISSING:
+            if (
+                dataclass_field.default is MISSING
+                and dataclass_field.default_factory is MISSING
+            ):
                 dataclass_field = copy.copy(dataclass_field)
                 dataclass_field.default = self.default_if_missing
                 
@@ -589,9 +638,13 @@ class Node(Generic[_T]):
         # Unwrap initvars as regular field since we need to bind to the field
         # when the BoundNode is called.
         if typ is InitVar:
-            typ = object
+            typ = Any
         elif isinstance(typ, InitVar):
-            typ = typ.type
+            args = get_args(typ)
+            if args:
+                typ = args[0]
+            else:
+                typ = Any
         # Skip ClassVar fields by unwrapping them to their underlying type
         elif _is_classvar(typ):
             typ = get_args(typ)[0] if get_args(typ) else object
@@ -610,7 +663,9 @@ class Node(Generic[_T]):
         assert False, "Node.__call__ should not be called, this is a type specifier."
 
 
-def _make_dataclass_field(field_obj, use_default, node_doc):
+def _make_dataclass_field(
+    field_obj: Field, use_default: bool, node_doc: str | None
+) -> tuple[Field, Node | None]:
     """Creates a dataclasses Field for the given parameters.
     Args:
       field_obj: the current Field object.
@@ -686,8 +741,12 @@ class InjectedFields:
                 info.append(f"    {node_field_name}: {node.clz_or_func!r}")
         return "\n".join(info)
 
-    def _deep_info_helper(self, node: Node, field_name: str, prefix: str, info: list):
+    def _deep_info_helper(
+        self, node: Node, field_name: str, prefix: str, info: list[str]
+    ):
         prefix += "    "
+        if not node.clz_or_func:
+            return
         level = get_injected_fields(node.clz_or_func.clz_or_func)
         if field_name in level.injections:
             for source in level.injections[field_name].sources:
@@ -707,11 +766,13 @@ class InjectedFields:
                 node = source.node
                 node_field_name = source.node_field_name
                 info.append(f"{prefix}{node_field_name}: {node.clz_or_func!r}")
-                self._deep_info_helper(source.node, source.node_field_name, prefix, info)
+                self._deep_info_helper(
+                    source.node, source.node_field_name, prefix, info
+                )
 
         return "\n".join(info)
 
-    def generate_html_page(self, url_generator) -> str:
+    def generate_html_page(self, url_generator: Callable[[type], str]) -> str:
         """Generates an html page containing the injected fields and their
         bindings including the deeper levels of the injected fields.
         Args:
@@ -721,13 +782,19 @@ class InjectedFields:
 
         import html
 
-        def _html_row(field_name, details, is_nested):
+        def _html_row(
+            field_name: str, details: InjectedFieldDetails, is_nested: bool
+        ) -> str:
             rows = ""
             for source in details.sources:
-                link = url_generator(source.node.clz_or_func)
+                if not source.node.clz_or_func:
+                    continue
+                link = url_generator(source.node.clz_or_func.clz_or_func)
                 nested_table_content = ""
                 if hasattr(source.node.clz_or_func, "clz_or_func"):
-                    next_level = get_injected_fields(source.node.clz_or_func.clz_or_func)
+                    next_level = get_injected_fields(
+                        source.node.clz_or_func.clz_or_func
+                    )
                     if source.node_field_name in next_level.injections:
                         nested_table_content = _html_row(
                             source.node_field_name,
@@ -745,7 +812,7 @@ class InjectedFields:
                 """
                     )
                     + f"""    <td>{source.node_field_name}</td>
-                    <td><a href='{link}'>{source.node.clz_or_func!r}</a></td>
+                    <td><a href='{link}'>{html.escape(str(source.node.clz_or_func))}</a></td>
                 </tr>
                 """
                 )
@@ -815,7 +882,7 @@ class InjectedFields:
         return bool(self.injections)
 
 
-def _get_injected_fields(clz) -> InjectedFields:
+def _get_injected_fields(clz: type) -> InjectedFields:
     nodes = getattr(clz, DATATREE_SENTIENEL_NAME, {})
     injected_fields = InjectedFields(clz)
 
@@ -823,15 +890,17 @@ def _get_injected_fields(clz) -> InjectedFields:
         if not isinstance(node, Node):
             continue
         for field_name, injected_name in node.get_map().items():
-            injected_fields._add(injected_name, InjectedFieldInfo(field_name, node_name, node))
+            injected_fields._add(
+                injected_name, InjectedFieldInfo(field_name, node_name, node)
+            )
     return injected_fields
 
 
 # Cache the injected fields for each class.
-_INJECTED_FIELDS_CACHE = {}
+_INJECTED_FIELDS_CACHE: dict[type, InjectedFields] = {}
 
 
-def get_injected_fields(clz) -> InjectedFields:
+def get_injected_fields(clz: type) -> InjectedFields:
     """Returns information about the injected fields for the given class.
     This can be used to find how fields are injected and bound. In particular,
     a number of Node fields can inject the same field name. This will also
@@ -847,7 +916,7 @@ def get_injected_fields(clz) -> InjectedFields:
 
 
 def _merge_field_metadata(
-    existing_field: Field, new_field: Field, anno_type, new_anno_type
+    existing_field: Field, new_field: Field, anno_type: Any, new_anno_type: Any
 ) -> Field:
     """Merges metadata from two fields, preserving existing metadata but adding docs if missing.
     Only merges docs if the annotation types match."""
@@ -871,9 +940,10 @@ def _merge_field_metadata(
     return existing_field
 
 
-def _apply_node_fields(clz):
+def _apply_node_fields(hints_cache: dict[type, dict[str, Any]], clz: type) -> type:
     """Adds new fields from Node annotations."""
-    annotations = clz.__annotations__
+    annotations = get_annotations(hints_cache, clz)
+
     new_annos = {}  # New set of annos to build.
 
     # The order in which items are added to the new_annos dictionary is important.
@@ -890,18 +960,20 @@ def _apply_node_fields(clz):
         if not hasattr(clz, name):
             anno_origin = get_origin(anno)
             anno_args = get_args(anno)
-            if (
-                anno_origin
-                and isinstance(anno_origin, type)
-                and issubclass(anno_origin, Node)
-                and len(anno_args) == 1
-            ):
+            node_clz = None
+            if anno_origin and isinstance(anno_origin, type) and issubclass(anno_origin, Node):
+                node_clz = anno_origin
+            elif anno == Node:
+                node_clz = Node
+
+            if node_clz and len(anno_args) == 1:
                 # This is a Node but the default value is not provided.
                 # Use this as a short-hand way to specify a Node field.
-                default_value = anno_origin(anno_args[0])
-                setattr(clz, name, field(default=default_value))
+                default_value = node_clz(anno_args[0])
+                setattr(clz, name, field(default=default_value, init=False, compare=False))
             else:
                 continue
+
         anno_default = getattr(clz, name)
         if isinstance(anno_default, Field):
             anno_default = anno_default.default
@@ -918,7 +990,7 @@ def _apply_node_fields(clz):
             # we complete the initialization here where we pull the clz_or_func
             # parameter from the annotation. If the Node object has already been
             # initialized, this does nothing.
-            anno_default._inititalize_node_with_annotation(anno)
+            anno_default._inititalize_node_with_annotation(hints_cache, anno) # type: ignore
             nodes[name] = anno_default
             rev_map = anno_default.get_rev_map()
             # Add the fields from the Node specification.
@@ -1048,37 +1120,37 @@ class Exposures:
 
 
 class Overrides:
-    def __init__(self, kwds):
+    def __init__(self, kwds: dict[str, Any]):
         self.kwds = kwds
 
-    def get_override(self, name):
+    def get_override(self, name: str) -> Any:
         return self.kwds.get(name, MISSING)
 
 
 # Deprecated: support for this will be removed in a future release.
-def override(**kwds):
+def override(**kwds: Any) -> Overrides:
     return Overrides(kwds)
 
 
 @dataclass
 class Args:
-    arg: tuple
-    kwds: dict
-    clazz: type = None
+    arg: tuple[Any, ...]
+    kwds: dict[str, Any]
+    clazz: type | None = None
 
-    def bind_signature(self, signature):
+    def bind_signature(self, signature: inspect.Signature) -> dict[str, Any]:
         return signature.bind_partial(*self.arg, **self.kwds).arguments
 
 
-def dtargs(*arg, clazz=None, **kwds):
+def dtargs(*arg: Any, clazz: type | None = None, **kwds: Any) -> Args:
     return Args(arg, kwds, clazz=clazz)
 
 
-def _initialize_node_instances(clz, instance):
+def _initialize_node_instances(clz: type, instance: object):
     """Post dataclass initialization binding of nodes to instance."""
     nodes = getattr(clz, DATATREE_SENTIENEL_NAME)
 
-    bindings = []
+    bindings: list[tuple[str, "BindingDefault[Any]"]] = []
     for name, node in nodes.items():
         # The cur-value may contain args specifically for this node.
         cur_value = getattr(instance, name)
@@ -1088,7 +1160,7 @@ def _initialize_node_instances(clz, instance):
             field_value = BoundNode(instance, name, node, cur_value)
         elif isinstance(cur_value, BindingDefault):
             # Evaluate the default value after all BoundNode initializations.
-            bindings.append((name, cur_value))
+            bindings.append((name, cur_value)) # type: ignore
             continue
         else:
             # Parent node has passed something other than a Node or a chained BoundNode.
@@ -1104,34 +1176,53 @@ def _initialize_node_instances(clz, instance):
         _field_assign(instance, name, field_value)
 
 
+def get_annotations(hints_cache: dict[type, dict[str, Any]], clz: type) -> dict[str, Any]:
+    if clz in hints_cache:
+        return hints_cache[clz]
+    
+    try:
+        types: dict[str, Any] = get_type_hints(clz) # type: ignore
+        result = {k : types[k] for k in clz.__annotations__.keys()}
+    except (NameError, TypeError):
+        result = clz.__annotations__
+        
+    hints_cache[clz] = result
+    return result
+
 # Provide dataclass compatiability post python 3.8.
 # Default values for the dataclass function post Python 3.8.
-_POST_38_DEFAULTS = dtargs(match_args=True, kw_only=False, slots=False, weakref_slot=False).kwds
+_POST_38_DEFAULTS = dtargs(
+    match_args=True, kw_only=False, slots=False, weakref_slot=False
+).kwds
 
 
 def _process_datatree(
-    clz,
-    init,
-    repr,
-    eq,
-    order,
-    unsafe_hash,
-    frozen,
-    match_args,
-    kw_only,
-    slots,
-    weakref_slot,
-    chain_post_init,
-    provide_override_field,
-):
-    if OVERRIDE_FIELD_NAME in clz.__annotations__:
-        if clz.__annotations__[OVERRIDE_FIELD_NAME] != Overrides:
-            raise ReservedFieldNameException(
-                f"Reserved field name {OVERRIDE_FIELD_NAME} used by class {clz.__name__}"
-            )
+    dataclass_func: Callable[[], type | tuple[Any, ...]],
+    clz: type,
+    init: bool,
+    repr: bool,
+    eq: bool,
+    order: bool,
+    unsafe_hash: bool,
+    frozen: bool,
+    match_args: bool,
+    kw_only: bool,
+    slots: bool,
+    weakref_slot: bool,
+    chain_post_init: bool,
+    provide_override_field: bool,
+) -> type | tuple[Any, ...]:
+    hints_cache: dict[type, dict[str, Any]] = dict()
+    
     if provide_override_field:
-        clz.__annotations__[OVERRIDE_FIELD_NAME] = Overrides
-        setattr(clz, OVERRIDE_FIELD_NAME, field(default=None, repr=False))
+        if OVERRIDE_FIELD_NAME in clz.__annotations__:
+            if clz.__annotations__[OVERRIDE_FIELD_NAME] != Overrides:
+                raise ReservedFieldNameException(
+                    f"Reserved field name {OVERRIDE_FIELD_NAME} used by class {clz.__name__}"
+                )
+        else:
+            clz.__annotations__[OVERRIDE_FIELD_NAME] = Overrides
+            setattr(clz, OVERRIDE_FIELD_NAME, field(default=None, repr=False))
 
     # Move the user defined __post_init__ to __original_post_init__
     post_init_func = clz.__dict__.get("__post_init__", None)
@@ -1142,21 +1233,20 @@ def _process_datatree(
     clz.__initialize_node_instances_done__ = False
 
     # Get InitVar fields from entire inheritance chain
-    init_vars = []
+    init_vars: list[str] = []
     # Go through MRO in reverse to get base class InitVars first
     for base_cls in reversed(clz.__mro__[:-1]):  # Skip object
-        if hasattr(base_cls, "__annotations__"):
-            for name, type_hint in base_cls.__annotations__.items():
-                if isinstance(type_hint, InitVar) or (
-                    isinstance(type_hint, str) and "InitVar" in type_hint
-                ):
+        base_cls_annotations = get_annotations(hints_cache, base_cls)
+        if base_cls_annotations:
+            for name, type_hint in base_cls_annotations.items():
+                if type_hint is InitVar or isinstance(type_hint, InitVar):
                     if name not in init_vars:  # Avoid duplicates
                         init_vars.append(name)
 
     # Create the override post_init function with proper parameter handling
-    clz.__post_init__ = _create_post_init_function(clz, post_init_func, chain_post_init)
+    clz.__post_init__ = _create_post_init_function(hints_cache, clz, post_init_func, chain_post_init)
 
-    _apply_node_fields(clz)
+    _apply_node_fields(hints_cache, clz)
 
     # Create dict of only the post-Python 3.8 dataclass parameters that differ from defaults.
     # This ensures compatibility with older Python versions while still supporting newer parameters
@@ -1168,8 +1258,8 @@ def _process_datatree(
         ((k, v) for k, v in values_post_38.items() if v != _POST_38_DEFAULTS[k])
     )
 
-    dataclass(
-        clz,
+    return dataclass_func(
+        clz, # type: ignore
         init=init,
         repr=repr,
         eq=eq,
@@ -1179,71 +1269,103 @@ def _process_datatree(
         **values_post_38_differ,
     )
 
-    return clz
 
+if TYPE_CHECKING:
+    @dataclass_transform(
+        init_default=True,
+        repr_default=True,
+        eq_default=True,
+        order_default=False,
+        unsafe_hash_default=False,
+        frozen_default=False,
+        field_specifiers=(Field, dtfield)
+    )
+    def datatree(
+        clz: Optional[type[_T]] = None,
+        /,
+        *,
+        init: bool = True,
+        repr_: bool = True,
+        eq: bool = True,
+        order: bool = False,
+        unsafe_hash: bool = False,
+        frozen: bool = False,
+        match_args: bool = True,
+        kw_only: bool = False,
+        slots: bool = False,
+        weakref_slot: bool = False,
+        chain_post_init: bool = False,
+        provide_override_field: bool = False,
+        default_if_missing: Any = MISSING,
+    ) -> Callable[[type[_T]], type[_T]]:
+        if clz is None:
+            return lambda cls: cls
+        return clz
 
-def datatree(
-    clz: Optional[type[_T]] = None,
-    /,
-    *,
-    init=True,
-    repr=True,
-    eq=True,
-    order=False,
-    unsafe_hash=False,
-    frozen=False,
-    match_args=True,
-    kw_only=False,
-    slots=False,
-    weakref_slot=False,
-    chain_post_init=False,
-    provide_override_field=False,
-    default_if_missing=MISSING,
-) -> Callable[[type[_T]], type[_T]]:
-    """Python decorator similar to dataclasses.dataclass providing parameter injection,
-    injection, binding and overrides for parameters deeper inside a tree of objects.
-    Args:
-        clz: The class to decorate.
-        init: If True, a __init__ method will be generated.
-        repr: If True, a __repr__ method will be generated.
-        eq: If True, __eq__ and __ne__ methods will be generated.
-        order: If True, __lt__, __le__, __gt__, and __ge__ methods will be generated.
-        unsafe_hash: If True, a __hash__ method will be generated.
-        frozen: If True, the class is made immutable.
-        match_args: If True, the generated __init__ method will accept only the parameters
-            that are defined in the class.
-        kw_only: If True, the generated __init__ method will accept only keyword arguments.
-        slots: If True, the class will be a slots class.
-        chain_post_init: If True, the __post_init__ method will chain the post init methods
-            of the base classes.
-        provide_override_field: If True, the class will provide an override field that can be
-            used to provide overrides for the Node fields
-    """
+else:
+    def datatree(
+        clz: Optional[type[_T]] = None,
+        /,
+        *,
+        init: bool = True,
+        repr_: bool = True,
+        eq: bool = True,
+        order: bool = False,
+        unsafe_hash: bool = False,
+        frozen: bool = False,
+        match_args: bool = True,
+        kw_only: bool = False,
+        slots: bool = False,
+        weakref_slot: bool = False,
+        chain_post_init: bool = False,
+        provide_override_field: bool = False,
+        default_if_missing: Any = MISSING,
+    ) -> Callable[[type[_T]], type[_T]]:
+        """Python decorator similar to dataclasses.dataclass providing parameter injection,
+        injection, binding and overrides for parameters deeper inside a tree of objects.
+        Args:
+            clz: The class to decorate.
+            init: If True, a __init__ method will be generated.
+            repr_: If True, a __repr__ method will be generated.
+            eq: If True, __eq__ and __ne__ methods will be generated.
+            order: If True, __lt__, __le__, __gt__, and __ge__ methods will be generated.
+            unsafe_hash: If True, a __hash__ method will be generated.
+            frozen: If True, the class is made immutable.
+            match_args: If True, the generated __init__ method will accept only the parameters
+                that are defined in the class.
+            kw_only: If True, the generated __init__ method will accept only keyword arguments.
+            slots: If True, the class will be a slots class.
+            chain_post_init: If True, the __post_init__ method will chain the post init methods
+                of the base classes.
+            provide_override_field: If True, the class will provide an override field that can be
+                used to provide overrides for the Node fields
+        """
 
-    def wrap(clz):
-        return _process_datatree(
-            clz,
-            init,
-            repr,
-            eq,
-            order,
-            unsafe_hash,
-            frozen,
-            match_args,
-            kw_only,
-            slots,
-            weakref_slot,
-            chain_post_init,
-            provide_override_field,
-        )
+        def wrap(clz):
+            return _process_datatree(
+                dataclass,
+                clz,
+                init,
+                repr_,
+                eq,
+                order,
+                unsafe_hash,
+                frozen,
+                match_args,
+                kw_only,
+                slots,
+                weakref_slot,
+                chain_post_init,
+                provide_override_field,
+            )
 
-    # See if we're being called as @datatree or @datatree().
-    if clz is None:
-        # We're called with parens.
-        return wrap
+        # See if we're being called as @datatree or @datatree().
+        if clz is None:
+            # We're called with parens.
+            return wrap
 
-    # We're called as @datatree without parens.
-    return wrap(clz)
+        # We're called as @datatree without parens.
+        return wrap(clz)
 
 
 @dataclass(frozen=True)
@@ -1277,8 +1399,7 @@ def _is_initvar(ann_type: Any) -> bool:
     """
     Returns True if 'ann_type' is exactly 'InitVar' or 'InitVar[...]'.
     """
-    return ann_type is InitVar or type(ann_type) is InitVar
-
+    return ann_type is InitVar or isinstance(ann_type, InitVar)
 
 def _is_classvar(ann_type: Any) -> bool:
     """
@@ -1286,9 +1407,11 @@ def _is_classvar(ann_type: Any) -> bool:
     """
     return get_origin(ann_type) is ClassVar
 
-
 def _get_post_init_parameter_map(
-    clz: type, post_init_new_name: str, post_init_orig_name: str
+    hints_cache: dict[type, dict[str, Any]],
+    clz: type, 
+    post_init_new_name: str, 
+    post_init_orig_name: str
 ) -> dict[int, list[_PostInitParameter]]:
     """
     Returns a map of all the post-init parameters for a class and its
@@ -1330,15 +1453,16 @@ def _get_post_init_parameter_map(
                 _PostInitClasses(i, override_post_init_func, post_init_orig_name, {})
             )
 
-    cls_annotations = clz.__dict__.get("__annotations__", {})
+    cls_annotations = get_annotations(hints_cache, clz)
 
     for name, typ in cls_annotations.items():
         # Skip ClassVar fields - they are not instance fields
         if _is_classvar(typ):
             continue
-        fields[name] = (None, _PostInitParameter(name, not _is_initvar(typ)))
+        field_info = clz.__dict__.get(name)
+        fields[name] = (field_info, _PostInitParameter(name, not _is_initvar(typ)))
 
-    result: dict[type, tuple[list[_PostInitParameter], str]] = {}
+    result: dict[int, tuple[list[_PostInitParameter], str]] = {}
     for post_init_class in dataclass_parents:
         b = clz.__mro__[post_init_class.mro_index]
         post_init_params: list[_PostInitParameter] = (
@@ -1358,7 +1482,11 @@ def _get_post_init_parameter_map(
 
 
 def _create_chain_post_init_text(
-    clz: type, post_init_new_name: str, post_init_orig_name: str, chain_post_init: bool
+    hints_cache: dict[type, dict[str, Any]],
+    clz: type, 
+    post_init_new_name: str, 
+    post_init_orig_name: str, 
+    chain_post_init: bool
 ) -> tuple[dict[str, Any], list[str], list[str]]:
     """
     Creates a chain of post-init functions for a class.
@@ -1371,22 +1499,23 @@ def _create_chain_post_init_text(
     function of the deepest class will be called multiple times.
     """
     locals = {"clz": clz}
-    mapping = _get_post_init_parameter_map(clz, post_init_new_name, post_init_orig_name)
+    mapping = _get_post_init_parameter_map(
+        hints_cache, clz, post_init_new_name, post_init_orig_name)
     header_text = []
     body_text = []
-    params_derived = mapping[0][0]
-    pnames = ("self",) + tuple(p.name for p in params_derived if not p.is_in_self)
+    params_derived: list[_PostInitParameter] = mapping.get(0, ([], ""))[0]
+    pnames = ("self",) + tuple(p.name for p in params_derived)
     header_text.append(f"def {post_init_orig_name}({', '.join(pnames)}):")
     body_text.append("    mro = clz.__mro__")
     if chain_post_init:
-        for mro_index, params_funcname in mapping.items():
+        for mro_index, (params, funcname) in mapping.items():
             if mro_index == 0:
                 continue
             names = ("self",) + tuple(
-                f"self.{p.name}" if p.is_in_self else p.name for p in params_funcname[0]
+                f"self.{p.name}" if p.is_in_self else p.name for p in params
             )
             body_text.append(
-                f"    mro[{mro_index}].{params_funcname[1]}({', '.join(names)})"
+                f"    mro[{mro_index}].{funcname}({', '.join(names)})"
                 f" # {clz.__mro__[mro_index].__name__}"
             )
 
@@ -1412,7 +1541,12 @@ def _create_chain_post_init_text(
     return locals, header_text, body_text
 
 
-def _create_post_init_function(clz, wrap_fn=None, chain_post_init=False):
+def _create_post_init_function(
+    hints_cache: dict[type, dict[str, Any]],
+    clz: type, 
+    wrap_fn: Callable[[Any], None] | None = None, 
+    chain_post_init: bool = False
+) -> Callable[[Any], None]:
     """Creates a custom __post_init__ function with named parameters."""
 
     if clz.__module__ in sys.modules:
@@ -1421,6 +1555,7 @@ def _create_post_init_function(clz, wrap_fn=None, chain_post_init=False):
         globals = {}
 
     locals, header_text, body_text = _create_chain_post_init_text(
+        hints_cache,
         clz, ORIGINAL_POST_INIT_NAME, "__post_init__", chain_post_init
     )
 
@@ -1447,7 +1582,7 @@ def _create_post_init_function(clz, wrap_fn=None, chain_post_init=False):
 
     all_locals = {**locals, **local_vars}
 
-    override_post_init = _create_fn(
+    override_post_init: Callable[[Any], None] = _create_fn(
         "__post_init__", header_lines, body_lines, locals=all_locals, globals=globals
     )
 
@@ -1461,9 +1596,9 @@ def _create_fn(
     header_lines: list[str],
     body_lines: list[str],
     *,
-    globals: dict[str, Any] = None,
-    locals: dict[str, Any] = None,
-):
+    globals: dict[str, Any] | None = None,
+    locals: dict[str, Any] | None = None,
+) -> Callable[[Any], None]:
     """Creates a function dynamically.
 
     Args:
@@ -1486,7 +1621,7 @@ def _create_fn(
     func_text = f"def __create_fn__({local_vars}):\n{body}\n    return {name}"
 
     # Create the function
-    exec_locals = {}
+    exec_locals: dict[str, Any] = {}
     # Uncomment to debug.
     # print("\n" * 3)
     # print(f"# {locals['clz'].__name__}")

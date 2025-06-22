@@ -6,9 +6,9 @@ Created on 8 Dec 2021
 
 import unittest
 from datatrees import datatree, dtargs, override, Node, dtfield, field_docs, get_injected_fields
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, Field
 import builtins
-from typing import ClassVar
+from typing import Any, ClassVar
 
 
 @datatree
@@ -52,13 +52,13 @@ class Overridable:
     leaf_a: float = 53  # Overrides the default value for all classes.
 
     # Only the nominated fields are mapped and leaf1_b
-    leaf1: Node = Node(LeafType1, "leaf_a", {"leaf_b": "leaf1_b"})
-    leaf1a: Node = Node(LeafType1, "leaf_a", {"leaf_b": "leaf1a_b"})
+    leaf1: Node[LeafType1] = Node(LeafType1, "leaf_a", {"leaf_b": "leaf1_b"})
+    leaf1a: Node[LeafType1] = Node(LeafType1, "leaf_a", {"leaf_b": "leaf1a_b"})
 
-    leaf2: Node = Node(LeafType2)  # All fields are mapped.
-    leaf3: Node = Node(LeafType3, {})  # No fields are mapped.
-    leaf4: Node = Node(LeafType4, use_defaults=False)  # Default values are mapped from this.
-    leaf5: Node = Node(LeafType5)
+    leaf2: Node[LeafType2] = Node(LeafType2)  # All fields are mapped.
+    leaf3: Node[LeafType3] = Node(LeafType3, {})  # No fields are mapped.
+    leaf4: Node[LeafType4] = Node(LeafType4, use_defaults=False)  # Default values are mapped from this.
+    leaf5: Node[LeafType5] = Node(LeafType5)
 
     def __post_init__(self):
         self.l1 = self.leaf1(leaf_a=99)
@@ -228,7 +228,7 @@ class Test(unittest.TestCase):
         class A1:
             a1: float = 1
             leaf: Node[LeafType2] = dtfield(Node(LeafType2), init=True)
-            s: list = field(default_factory=lambda: list())
+            s: list[Any] = field(default_factory=lambda: list())
 
             def __post_init__(self):
                 self.s.append("A1")
@@ -236,19 +236,19 @@ class Test(unittest.TestCase):
         @datatree(chain_post_init=True)
         class A2:
             a2: float = 1
-            s: list = field(default_factory=lambda: list())
+            s: list[Any] = field(default_factory=lambda: list())
 
             def __post_init__(self):
                 self.s.append("A2")
 
         @datatree(chain_post_init=True)
         class B(A1, A2):
-            b: float = 1
-            s: list = field(default_factory=lambda: list())
-
+            bx: float = 1
+            s: list[Any] = field(default_factory=lambda: list())
+        
         @datatree(chain_post_init=True)
         class C(B):
-            b: float = 1
+            bx: float = 1
 
             def __post_init__(self):
                 self.s.append("C")
@@ -258,13 +258,13 @@ class Test(unittest.TestCase):
 
     def test_multiple_inheritance_no_post_init_no_chain(self):
         class A:
-            def do_thing(self, s, v):
+            def do_thing(self, s: list[Any], v: str):
                 s.append(v)
 
         @dataclass
         class B(A):
             b: float = 1
-            s: list = field(default_factory=lambda: list())
+            s: list[Any] = field(default_factory=lambda: list())
 
             def __post_init__(self):
                 self.do_thing(self.s, "B")
@@ -276,34 +276,34 @@ class Test(unittest.TestCase):
         self.assertEqual(C().s, ["B"])
 
     def test_function(self):
-        al = []
-        bl = []
+        al: list[str] = []
+        bl: list[str] = []
 
-        def func(a: set = "a", b: str = "b"):
+        def func(a: str = "a", b: str = "b"):
             al.append(a)
             bl.append(b)
 
         @datatree
         class A:
             b: str = "clzA-b"
-            funcNode: Node = dtfield(Node(func), init=True)
+            funcNode: Node[None] = dtfield(Node(func), init=True)
 
         A().funcNode()
         self.assertEqual(al, ["a"])
         self.assertEqual(bl, ["clzA-b"])
 
     def test_prefix_node(self):
-        al = []
-        bl = []
+        al: list[str] = []
+        bl: list[str] = []
 
-        def func(a: set = "a", b: str = "b"):
+        def func(a: str = "a", b: str = "b"):
             al.append(a)
             bl.append(b)
 
         @datatree
         class A:
             fb: str = "clzA-b"
-            funcNode: Node = dtfield(Node(func, prefix="f"), init=True)
+            funcNode: Node[None] = dtfield(Node(func, prefix="f"), init=True)
 
         A().funcNode()
         self.assertEqual(al, ["a"])

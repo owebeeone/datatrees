@@ -31,4 +31,18 @@ Homepage = "https://github.com/owebeeone/datatrees"
 dependencies = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "datatrees[types]",
 ]
+[project.optional-dependencies]
+types = [
+    "typing_extensions>=4.1.0; python_version < '3.11'",
+]
+# pyproject.toml
+[tool.mypy]
+files = "datatrees, tests/test_type_checking.py"
+warn_unused_configs = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+check_untyped_defs = true
+show_error_codes = true

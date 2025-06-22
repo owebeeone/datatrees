@@ -22,6 +22,7 @@ from .datatrees import (
     _create_chain_post_init_text,
     _create_post_init_function,
     _apply_node_fields,
+    _process_datatree,
 )
 
 __version__ = "0.1.0"
@@ -41,4 +42,5 @@ __all__ = [
     "_create_chain_post_init_text",
     "_create_post_init_function",
     "_apply_node_fields",
+    "_process_datatree",
 ] 
