@@ -147,7 +147,6 @@ from typing import (
     TypeVar,
     get_args,
     get_origin,
-    ParamSpec,
     ClassVar,
     TYPE_CHECKING,
     Iterable,
@@ -155,12 +154,12 @@ from typing import (
 )
 
 from frozendict import frozendict
-from sortedcollections import OrderedSet
-from types import FunctionType
 import inspect
 import builtins
 import re
 from abc import ABC, abstractmethod
+
+from sortedcollections import OrderedSet
 try:
     from typing import get_type_hints
 except ImportError:
@@ -171,6 +170,7 @@ if TYPE_CHECKING:
     except ImportError:
         from typing_extensions import dataclass_transform  # Python < 3.11
 
+
 FIELD_FIELD_NAMES = tuple(inspect.signature(field).parameters.keys())
 DATATREE_SENTIENEL_NAME = "__datatree_nodes__"
 OVERRIDE_FIELD_NAME = "override"  # Deprecated feature.
@@ -180,7 +180,6 @@ DATATREE_POST_INIT_SENTIENEL_NAME = "__is_datatree_override_post_init__"
 _FIELD_INITVAR = "InitVar"
 
 _T = TypeVar("_T")  # Generic type variable for Node[T] fields.
-_P = ParamSpec("_P")
 
 
 class ReservedFieldNameException(Exception):
@@ -215,18 +214,20 @@ class NodeHasNoClzOrFunc(Exception):
     """The Node specified has no clz_or_func parameter and the Node[T] type T is not specified."""
 
 
-class _OrderedSet(OrderedSet):
-    def union(self, other: Iterable[Any]) -> "_OrderedSet":
+class _OrderedSet(OrderedSet[Any]):
+    def union(self, *others: Iterable[Any]) -> "_OrderedSet":
         result = _OrderedSet(self)
-        for item in other:
-            result.add(item)  # type: ignore
+        for other in others:
+            for item in other:
+                result.add(item)  # type: ignore
         return result
 
-    def intersection(self, other: Iterable[Any]) -> "_OrderedSet":
+    def intersection(self, *others: Iterable[Any]) -> "_OrderedSet":
         result = _OrderedSet()
-        for item in self:
-            if item in other:
-                result.add(item)  # type: ignore
+        for other in others:
+            for item in self:
+                if item in other:
+                    result.add(item)  # type: ignore
         return result
 
 
@@ -365,11 +366,12 @@ def field_docs(obj: object, field_name: str) -> str | None:
 _Node = None  # Forward declaration for Node. This is set later.
 
 
-def dtfield(default: Any = MISSING, 
+def dtfield(*, default: Any = MISSING, 
             doc: str | None = None, 
             self_default: Callable[[Any], Any] | None = None, 
             init: bool | object = MISSING, 
-            **kwargs: dict[str, Any]) -> Field[object]:
+            default_factory: Callable[[Any], Any] | None = MISSING, # type: ignore
+            **kwargs: Any) -> Any:
     """Like dataclasses.field but also supports doc parameter.
     Args:
       default: The default value for the field.
@@ -379,9 +381,13 @@ def dtfield(default: Any = MISSING,
     """
     metadata = kwargs.pop("metadata", {})
     metadata[METADATA_DOCS_NAME] = FieldMetadata(doc)
+    if default_factory is not MISSING:
+        kwargs["default_factory"] = default_factory
+
     if self_default:
-        if default is not MISSING:
-            raise SpecifiedMultipleDefaults("Cannot specify default and self_default.")
+        if default is not MISSING and default_factory is not MISSING:
+            raise SpecifiedMultipleDefaults(
+                "Can only specify one of default, default_factory or self_default.")
         default = BindingDefault(self_default)
 
     if init is MISSING:
@@ -389,7 +395,7 @@ def dtfield(default: Any = MISSING,
         types = (_Node, BindingDefault) if _Node is not None else BindingDefault
         init = not isinstance(default, types)
 
-    return field(**kwargs, default=default, metadata=metadata, init=init) # type: ignore
+    return field(**kwargs, default=default, metadata=metadata, init=init)
 
 
 @dataclass(frozen=True, repr=False)
@@ -651,21 +657,21 @@ class Node(Generic[_T]):
 
         return AnnotationDetails(dataclass_field, typ)
 
-    def get_rev_map(self):
+    def get_rev_map(self) -> dict[str, Any]:
         return self.expose_rev_map
 
-    def get_map(self):
+    def get_map(self) -> dict[str, Any]:
         return self.expose_map
 
-    def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _T:
+    def __call__(self, *args: Any, **kwargs: Any) -> _T:
         # This is a type specifier, not a callable.
         # These entries are transformed into BoundNode instances at initialization.
         assert False, "Node.__call__ should not be called, this is a type specifier."
 
 
 def _make_dataclass_field(
-    field_obj: Field, use_default: bool, node_doc: str | None
-) -> tuple[Field, Node | None]:
+    field_obj: Field[_T], use_default: bool, node_doc: str | None
+) -> tuple[Field[_T], Node[_T] | None]:
     """Creates a dataclasses Field for the given parameters.
     Args:
       field_obj: the current Field object.
@@ -917,7 +923,7 @@ def get_injected_fields(clz: type) -> InjectedFields:
 
 def _merge_field_metadata(
     existing_field: Field, new_field: Field, anno_type: Any, new_anno_type: Any
-) -> Field:
+) -> Field[Any]:
     """Merges metadata from two fields, preserving existing metadata but adding docs if missing.
     Only merges docs if the annotation types match."""
 
@@ -1030,6 +1036,7 @@ def _apply_node_fields(hints_cache: dict[type, dict[str, Any]], clz: type) -> ty
             nodes[name] = anno_default
 
     clz.__annotations__ = new_annos
+    del hints_cache[clz]
 
     for bclz in clz.__mro__[-1:0:-1]:
         bnodes = getattr(bclz, DATATREE_SENTIENEL_NAME, {})
@@ -1058,7 +1065,7 @@ class BoundNode(Generic[_T]):
     def chain(self, new_parent, node) -> "BoundNode[_T]":
         return BoundNode(new_parent, self.name, self.node, node, self)
 
-    def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _T:
+    def __call__(self, *args: Any, **kwargs: Any) -> _T:
         return self._invoke(self, self.node.clz_or_func.clz_or_func, args, kwargs)
 
     def call_with(self, clz_or_func, *args, **kwds) -> _T:
