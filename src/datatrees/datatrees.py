@@ -134,6 +134,7 @@ from dataclasses import (
     Field,
     InitVar,
     MISSING,
+    _FIELD_INITVAR,
 )
 from functools import wraps
 import sys
@@ -177,7 +178,6 @@ OVERRIDE_FIELD_NAME = "override"  # Deprecated feature.
 METADATA_DOCS_NAME = "dt_docs"
 ORIGINAL_POST_INIT_NAME = "__original_post_init__"  # User provided post_init renamed to this.
 DATATREE_POST_INIT_SENTIENEL_NAME = "__is_datatree_override_post_init__"
-_FIELD_INITVAR = "InitVar"
 
 _T = TypeVar("_T")  # Generic type variable for Node[T] fields.
 
@@ -1438,7 +1438,8 @@ def _get_post_init_parameter_map(
         base_fields: dict[str, tuple[Field, _PostInitParameter]] = {}
         if base_dataclass_fields is not None:
             for f in base_dataclass_fields.values():
-                v = (f, _PostInitParameter(f.name, f._field_type is not _FIELD_INITVAR))
+                v: tuple[Field, _PostInitParameter] = \
+                    (f, _PostInitParameter(f.name, f._field_type is not _FIELD_INITVAR))
                 if not v[1].is_in_self:
                     base_fields[f.name] = v
                 fields[f.name] = v

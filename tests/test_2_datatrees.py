@@ -90,7 +90,8 @@ class TestInitVar(unittest.TestCase):
             middle_init: InitVar[str | None] = None
             middle_value: str = ''
 
-            def __post_init__(self, middle_init: str | None, **kwargs: Any):
+            # Dataclass does not support **kwargs, must name all args.
+            def __post_init__(self, base_init, middle_init):
                 if middle_init:
                     self.middle_value = f"Middle: {middle_init}"
 
@@ -99,7 +100,8 @@ class TestInitVar(unittest.TestCase):
             derived_init: InitVar[str | None] = None
             derived_value: str = ''
 
-            def __post_init__(self, derived_init: str | None, **kwargs: Any):
+            # Dataclass does not support **kwargs, must name all args.
+            def __post_init__(self, base_init, middle_init, derived_init):
                 if derived_init:
                     self.derived_value = f"Derived: {derived_init}"
 
