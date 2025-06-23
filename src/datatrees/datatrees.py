@@ -1632,10 +1632,10 @@ def _create_fn(
     # Create the function
     exec_locals: dict[str, Any] = {}
     # Uncomment to debug.
-    print("\n" * 3)
-    print(f"# {locals['clz'].__name__}")
-    print(func_text)
-    print("\n" * 3)
+    # print("\n" * 3)
+    # print(f"# {locals['clz'].__name__}")
+    # print(func_text)
+    # print("\n" * 3)
     exec(func_text, globals, exec_locals)
 
     function = exec_locals["__create_fn__"](**locals)
