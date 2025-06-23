@@ -1283,7 +1283,7 @@ if TYPE_CHECKING:
         order_default=False,
         unsafe_hash_default=False,
         frozen_default=False,
-        field_specifiers=(Field, dtfield),
+        field_specifiers=(Field, field, dtfield),
     )
     def datatree(
         clz: Optional[type[_T]] = None,
@@ -1632,10 +1632,10 @@ def _create_fn(
     # Create the function
     exec_locals: dict[str, Any] = {}
     # Uncomment to debug.
-    # print("\n" * 3)
-    # print(f"# {locals['clz'].__name__}")
-    # print(func_text)
-    # print("\n" * 3)
+    print("\n" * 3)
+    print(f"# {locals['clz'].__name__}")
+    print(func_text)
+    print("\n" * 3)
     exec(func_text, globals, exec_locals)
 
     function = exec_locals["__create_fn__"](**locals)
