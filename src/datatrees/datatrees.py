@@ -366,7 +366,7 @@ def field_docs(obj: object, field_name: str) -> str | None:
 _Node = None  # Forward declaration for Node. This is set later.
 
 
-def dtfield(*, default: Any = MISSING, 
+def dtfield(default: Any = MISSING, 
             doc: str | None = None, 
             self_default: Callable[[Any], Any] | None = None, 
             init: bool | object = MISSING, 
