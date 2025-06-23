@@ -417,16 +417,21 @@ class Node(Generic[_T]):
     composition class.
     """
 
-    clz_or_func: type[_T] | Callable[..., _T] | _ClzOrFuncWrapper[_T] | None = field(
-        default=None, repr=False
+    clz_or_func: type[_T] | Callable[..., _T] = dtfield(
+        doc="A class or function for parameter binding."
     )
-    use_defaults: bool = field(default=True)
-    suffix: str = field(default="")
-    prefix: str = field(default="")
-    expose_all: bool = field(default=False)
-    expose_if_avail: set[str] = field(default_factory=set)
-    preserve: set[str] | frozenset[str] | None = field(default_factory=set)
-    exclude: set[str] = field(default_factory=set)
+    use_defaults: bool = dtfield(
+        doc="Allows use of defaults otherwise defaults should be specified elsewhere."
+    )
+    suffix: str = dtfield(doc="Suffix to apply to injected field names.")
+    prefix: str = dtfield(doc="Prefix to apply to injected field names.")
+    expose_all: bool = dtfield(
+        doc="Forces the mapping of all fields even if the expose_spec "
+        " excluded the class or function parameter name."
+    )
+    expose_if_avail=dtfield(doc="Expose fields if they are available."),
+    preserve=dtfield(doc="Preserve fields from the class or function."),
+    exclude=dtfield(doc="Exclude fields from the class or function."),
     init_signature: inspect.Signature | None = field(default=None, repr=False)
     expose_map: dict[str, str] = field(default_factory=dict, repr=False)
     expose_rev_map: dict[str, Any] = field(default_factory=dict, repr=False)
