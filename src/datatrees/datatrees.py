@@ -435,7 +435,7 @@ class Node(Generic[_T]):
     init_signature: inspect.Signature | None = field(default=None, repr=False)
     expose_map: dict[str, str] = field(default_factory=dict, repr=False)
     expose_rev_map: dict[str, Any] = field(default_factory=dict, repr=False)
-    node_doc: str | None = field(default=None)
+    node_doc: str | None = dtfield(None, doc="Field documentation.")
     default_if_missing: Any = field(default=MISSING_PARAM)
     expose_spec: list[str | dict[str, str]] = field(default_factory=list, repr=False)
     hints_cache: dict[type, dict[str, Any]] = field(default_factory=dict, repr=False)
@@ -497,7 +497,7 @@ class Node(Generic[_T]):
 
         clz_or_func: Any
         if expose_spec:
-            if isinstance(expose_spec[0], (str, dict)) or expose_spec[0] is None:
+            if isinstance(expose_spec[0], (str, dict)):
                 clz_or_func = None
             else:
                 clz_or_func = expose_spec[0]
@@ -524,7 +524,7 @@ class Node(Generic[_T]):
     def _inititalize_node_with_annotation(self, 
                                           hints_cache: dict[type, dict[str, Any]], 
                                           anno_detail: type):
-        if self.clz_or_func is not None:
+        if hasattr(self, "clz_or_func"):
             return
         anno_args = get_args(anno_detail)
         if anno_args:
@@ -539,8 +539,7 @@ class Node(Generic[_T]):
             return
 
         _field_assign(self, "init_signature", inspect.signature(clz_or_func))
-        assert self.init_signature is not None
-
+        
         _field_assign(self, "clz_or_func", _ClzOrFuncWrapper(clz_or_func))
         fields_specified = tuple(f for f in self.expose_spec if isinstance(f, str))
         maps_specified = tuple(f for f in self.expose_spec if not isinstance(f, str))
@@ -1516,7 +1515,8 @@ def _create_chain_post_init_text(
     header_text = []
     body_text = []
     params_derived: list[_PostInitParameter] = mapping.get(0, ([], ""))[0]
-    pnames = ("self",) + tuple(p.name for p in params_derived)
+    pnames = ("self",) + tuple(p.name for p in params_derived if not p.is_in_self)
+
     header_text.append(f"def {post_init_orig_name}({', '.join(pnames)}):")
     body_text.append("    mro = clz.__mro__")
     if chain_post_init:
