@@ -1470,8 +1470,7 @@ def _get_post_init_parameter_map(
         # Skip ClassVar fields - they are not instance fields
         if _is_classvar(typ):
             continue
-        field_info = clz.__dict__.get(name)
-        fields[name] = (field_info, _PostInitParameter(name, not _is_initvar(typ)))
+        fields[name] = (None, _PostInitParameter(name, not _is_initvar(typ)))
 
     result: dict[int, tuple[list[_PostInitParameter], str]] = {}
     for post_init_class in dataclass_parents:
