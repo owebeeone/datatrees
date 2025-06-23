@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "datatrees"
-version = "0.3.1"
+version = "0.3.2"
 authors = [
     { name = "Gianni Mariani", email = "gianni@mariani.ws" },
 ]
@@ -27,17 +27,18 @@ dependencies = [
 Homepage = "https://github.com/owebeeone/datatrees"
 "Bug Tracker" = "https://github.com/owebeeone/datatrees/issues"
 
+[project.optional-dependencies]
+types = [
+    "typing_extensions>=4.1.0; python_version < '3.11'",
+]
+
 [tool.hatch.envs.test]
 dependencies = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
     "datatrees[types]",
 ]
-[project.optional-dependencies]
-types = [
-    "typing_extensions>=4.1.0; python_version < '3.11'",
-]
-# pyproject.toml
+
 [tool.mypy]
 files = "datatrees, tests/test_type_checking.py"
 warn_unused_configs = true
