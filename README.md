@@ -31,13 +31,13 @@ Exports:
 
 - **datatree**: The decorator for creating datatrees akin to dataclasses.dataclass(). It accepts all standard `dataclasses.dataclass` arguments (e.g., `init`, `repr`, `eq`, `order`, `frozen`, `unsafe_hash`, `match_args`, `kw_only`, `slots`, `weakref_slot`) in addition to datatrees-specific parameters like `chain_post_init`.
 - **dtfield**: The decorator for creating fields akin to dataclasses.field()
-- **Node**: The class for creating node factories.
+- **Node**: The class for creating node factories. **IMPORTANT**: When accessed on an instance, a Node field is itself a callable factory that produces new instances of the target type on each invocation. For example, if `obj.node_field` is a Node[SomeClass], then `obj.node_field()` creates and returns a new `SomeClass` instance each time it's called.
 - **field_docs**: The function for getting the documentation for a datatree field
 - **get_injected_fields**: Produces documentation on how fields are injected and bound
 
 ## Basic Usage
 
-The "Node[T]" annotation is used to indicate that the field is used to inject fields from a class or parameters from a function. The default value (an instance of a Node) contains options on how the fields are injected, namely prefix, suffix etc. If the default value is not specified, the a Node object will be created with the T parameter used as the class or function to inject e.g. the following are equivalent:
+The "Node[T]" annotation is used to indicate that the field is used to inject fields from a class or parameters from a function. **Crucially, Node fields become callable factories after initialization - you must call them with parentheses `()` to get an instance of the wrapped type.** The default value (an instance of a Node) contains options on how the fields are injected, namely prefix, suffix etc. If the default value is not specified, the a Node object will be created with the T parameter used as the class or function to inject e.g. the following are equivalent:
 
 ### Various ways to specify a Node[T]
 
@@ -123,6 +123,7 @@ assert pool.db_host == "db.example.com"
 assert pool.max_attempts == 5
 
 # Access the Node directly to create a ConnectionConfig instance
+# IMPORTANT: Each call to pool.connection() creates a NEW ConnectionConfig instance
 config = pool.connection()
 assert config.host == "db.example.com"
 assert config.port == 5432
@@ -140,6 +141,46 @@ This example demonstrates:
 3. Self-defaulting fields that compute values
 4. Node fields that can create instances
 5. Method access on both the composite and component classes
+
+### Understanding Node Fields as Factories
+
+A critical aspect of Node fields is that they are callable factories that create new instances on each invocation. Here's a demonstration:
+
+```python
+@datatree
+class Counter:
+    count: int = 0
+    
+    def increment(self):
+        self.count += 1
+
+@datatree
+class Container:
+    counter: Node[Counter] = Node(Counter)
+
+# Create a container
+container = Container()
+
+# Each call to counter() creates a NEW Counter instance
+counter1 = container.counter()
+counter2 = container.counter()
+
+# They are different objects
+assert counter1 is not counter2
+
+# Modifying one doesn't affect the other
+counter1.increment()
+assert counter1.count == 1
+assert counter2.count == 0  # Still 0!
+
+# You can pass overrides when calling the factory
+counter3 = container.counter(count=10)
+assert counter3.count == 10
+assert counter1.count == 1  # Unchanged
+assert counter2.count == 0  # Unchanged
+```
+
+This factory behavior is essential to understand: Node fields don't store a single instance; they store a factory that creates new instances with the injected parameters.
 
 ## Field Mapping
 
@@ -166,17 +207,17 @@ target = Target(src_value_a=10, b=20)
 assert target.src_value_a == 10  # Prefixed mapping
 assert target.b == 20            # Renamed mapping
 
+# IMPORTANT: Call source() to create a Source instance
 source = target.source()
 assert source.value_a == 10
 assert source.value_b == 20
 assert source.value_c == 3
 
-source = target.source(value_b=-1) # passed parameters override injected fields
+# You can override values when calling the factory
+source = target.source(value_b=-1)  # passed parameters override injected fields
 assert source.value_a == 10
 assert source.value_b == -1
 assert source.value_c == 3
-
-
 ```
 
 ## Self-Defaulting Fields
@@ -324,7 +365,7 @@ If preserve is set, the field names are preserved in the injected class except i
 
 If exclude is set, the fields in the exclude list are not injected.
 
-If `default_if_missing` is set (e.g. to `None`), injected fields that do not have a default value will be assigned this value. This is useful for ensuring that all injected fields have a defined value, even if the source class or function does not provide a default. By default, fields without defaults will cause an error during instantiation if a value is not provided. Furthermore, this feature helps to avoid errors reported by dataclasses regarding the order of fields (fields without default values must precede fields with default values). When injecting fields from multiple classes, it can be impossible to satisfy this ordering requirement without duplicating and manually defaulting each field; `default_if_missing` provides a cleaner solution to this problem.
+If `default_if_missing` is set (e.g. to `None`), injected fields that do not have a default value will be assigned this value. This is useful for ensuring that all injected fields have a defined value, even if the source class or function does not provide a default. Furthermore, this feature helps to avoid errors reported by dataclasses regarding the order of fields (fields without default values must precede fields with default values). When injecting fields from multiple classes, it can be impossible to satisfy this ordering requirement without duplicating and manually defaulting each field; `default_if_missing` provides a cleaner solution to this problem.
 
 ## Field Documentation
 
@@ -375,7 +416,7 @@ class Container(Generic[T]):
 
 container = Container[int](value=10, x=10)
 assert container.value == 10
-assert container.processor() == 20
+assert container.processor() == 20  # Note the () call!
 ```
 
 ### Self-Defaults
@@ -409,7 +450,7 @@ class Processor:
     processor: Node = Node(process, 'x', {'y': 'y_value'})
     
     def __post_init__(self):
-        result = self.processor()  # Uses x=10, y=2
+        result = self.processor()  # Uses x=10, y=2 - Note the () call!
 ```
 
 ### Dataclass InitVar Fields
@@ -480,7 +521,7 @@ assert child.ga == 10
 
 # prints:
 # Leaf ga=10
-leaf = child.leaf()
+leaf = child.leaf()  # Note the () call!
 assert leaf.gb == 20
 # ga is not available on leaf
 assert not hasattr(leaf, 'ga')
@@ -493,4 +534,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 This project is licensed under the GNU General Public License v2.1 - see the LICENSE file for details.
-```

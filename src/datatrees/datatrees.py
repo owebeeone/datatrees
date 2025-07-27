@@ -1283,7 +1283,7 @@ if TYPE_CHECKING:
         order_default=False,
         unsafe_hash_default=False,
         frozen_default=False,
-        field_specifiers=(Field, field, dtfield),
+        field_specifiers=(Field, field, dtfield, Node, BindingDefault),
     )
     def datatree(
         clz: Optional[type[_T]] = None,
@@ -1303,9 +1303,32 @@ if TYPE_CHECKING:
         provide_override_field: bool = False,
         default_if_missing: Any = MISSING,
     ) -> Callable[[type[_T]], type[_T]]:
+
+        def wrap(clz):
+            return _process_datatree(
+                dataclass,
+                clz,
+                init,
+                repr_,
+                eq,
+                order,
+                unsafe_hash,
+                frozen,
+                match_args,
+                kw_only,
+                slots,
+                weakref_slot,
+                chain_post_init,
+                provide_override_field,
+            )
+
+        # See if we're being called as @datatree or @datatree().
         if clz is None:
-            return lambda cls: cls
-        return clz
+            # We're called with parens.
+            return wrap
+
+        # We're called as @datatree without parens.
+        return wrap(clz)
 
 else:
 

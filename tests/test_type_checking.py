@@ -15,12 +15,27 @@ class SimpleObject:
     a: int
     b: str
     c: float = 3.14 # Has a default
+    
+
+@datatree
+class SimpleObject2:
+    d: int
+    node: Node[SimpleObject] = Node(SimpleObject)
+    
+@datatree
+class SimpleObject3:
+    v: int
+    v2: int = dtfield(self_default=lambda self: self.v * 2)
 
 def test_simple_object_init() -> None:
     # Pylance/MyPy should now recognize these parameters
     obj1 = SimpleObject(a=1, b="hello", c=2.71)
     # This should now NOT be flagged by Pylance
     obj2 = SimpleObject(a=10, b="world") # c should implicitly use its default
+    
+    obj3 = SimpleObject2(d=1, a=2, b=3)
+    
+    obj4 = SimpleObject3(v=1)
 
     # Type checker should report error for missing required arg 'a'
     if TYPE_CHECKING:
