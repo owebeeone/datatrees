@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "datatrees"
-version = "0.3.3"
+version = "0.3.4"
 authors = [
     { name = "Gianni Mariani", email = "gianni@mariani.ws" },
 ]
@@ -49,9 +49,13 @@ check_untyped_defs = true
 show_error_codes = true
 
 [tool.pyright]
-include = ["src/datatrees", "tests"]
-plugins = ["datatrees.plugins.pyright_plugin"]
-
+include = [
+    "src/datatrees",
+    "tests",
+]
+plugins = [
+    "datatrees.plugins.pyright_plugin",
+]
 executionEnvironments = [
-    { root = ".." }
+    { root = ".." },
 ]
