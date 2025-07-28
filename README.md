@@ -818,6 +818,22 @@ assert leaf.gb == 20
 assert not hasattr(leaf, 'ga')
 ```
 
+## Serializing
+
+### Json
+
+`datatrees` is compatible with the popular `dataclasses-json` library for easy serialization to and from JSON.
+
+- [dataclasses-json on PyPI](https://pypi.org/project/dataclasses-json/)
+- [dataclasses-json on GitHub](https://github.com/lidatong/dataclasses-json)
+
+### XML
+
+For robust XML serialization and deserialization, `datatrees` integrates with `xdatatrees`, a library from the same author designed for this purpose.
+
+- [xdatatrees on PyPI](https://pypi.org/project/xdatatrees/)
+- [xdatatrees on GitHub](https://github.com/owebeeone/xdatatrees)
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
