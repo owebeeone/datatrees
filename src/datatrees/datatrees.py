@@ -165,7 +165,9 @@ from sortedcollections import OrderedSet
 try:
     from typing import get_type_hints
 except ImportError:
-    pass
+    # Stub this function for Python 3.12 and earlier.
+    def get_type_hints(clz: type, localns: dict[str, Any] | None = None, globalns: dict[str, Any] | None = None) -> dict[str, Any]:
+        return clz.__annotations__
 if TYPE_CHECKING:
     try:
         from typing import dataclass_transform  # Python 3.11+
@@ -443,7 +445,7 @@ class Node(Generic[_T]):
     node_doc: str | None = dtfield(None, doc="Field documentation.")
     default_if_missing: Any = field(default=MISSING_PARAM)
     expose_spec: list[str | dict[str, str]] = field(default_factory=list, repr=False)
-    hints_cache: dict[type, dict[str, Any]] = field(default_factory=dict, repr=False)
+    anno_getter: 'AnnotationsAccessor' = field(default_factory=lambda: AnnotationsAccessor(), repr=False)
 
     # The default value for the preserve init parameter. Derived classes can override.
     # This allows for application specific Node types that have a set of
@@ -522,23 +524,23 @@ class Node(Generic[_T]):
         _field_assign(self, "expose_if_avail", expose_if_avail)
         _field_assign(self, "exclude", exclude)
         _field_assign(self, "default_if_missing", default_if_missing)
-        _field_assign(self, "hints_cache", dict())
+        _field_assign(self, "anno_getter", AnnotationsAccessor())
         if clz_or_func:
-            self._initialize_node(self.hints_cache, clz_or_func)
+            self._initialize_node(self.anno_getter, clz_or_func)
 
     def _inititalize_node_with_annotation(
-        self, hints_cache: dict[type, dict[str, Any]], anno_detail: type
+        self, anno_getter: 'AnnotationsAccessor', anno_detail: type
     ):
         if hasattr(self, "clz_or_func"):
             return
         anno_args = get_args(anno_detail)
         if anno_args:
-            self._initialize_node(hints_cache, anno_args[0])
+            self._initialize_node(anno_getter, anno_args[0])
         else:
             raise NodeHasNoClzOrFunc(f"Node[{anno_detail}] has no clz_or_func parameter.")
 
     def _initialize_node(
-        self, hints_cache: dict[type, dict[str, Any]], clz_or_func: type[_T] | Callable[..., _T]
+        self, anno_getter: 'AnnotationsAccessor', clz_or_func: type[_T] | Callable[..., _T]
     ):
         if self.init_signature is not None:
             return
@@ -590,7 +592,7 @@ class Node(Generic[_T]):
                 anno_detail = self.make_anno_detail(
                     from_id,
                     clz_or_func.__dataclass_fields__[from_id],
-                    get_annotations(hints_cache, clz_or_func),
+                    anno_getter.get_annotations(clz_or_func),
                 )
                 _update_name_multi_map(clz_or_func, expose_rev_dict, to_id, anno_detail)
 
@@ -606,7 +608,7 @@ class Node(Generic[_T]):
                     anno_detail = self.make_anno_detail(
                         from_id,
                         clz_or_func.__dataclass_fields__[from_id],
-                        get_annotations(hints_cache, clz_or_func),
+                        anno_getter.get_annotations(clz_or_func),
                     )
                     _update_name_multi_map(clz_or_func, expose_rev_dict, to_id, anno_detail)
         else:  # Not a dataclass type, can be a function.
@@ -942,9 +944,9 @@ def _merge_field_metadata(
     return existing_field
 
 
-def _apply_node_fields(hints_cache: dict[type, dict[str, Any]], clz: type) -> type:
+def _apply_node_fields(anno_getter: 'AnnotationsAccessor', clz: type) -> type:
     """Adds new fields from Node annotations."""
-    annotations = get_annotations(hints_cache, clz)
+    annotations = anno_getter.get_annotations(clz)
 
     new_annos = {}  # New set of annos to build.
 
@@ -992,7 +994,7 @@ def _apply_node_fields(hints_cache: dict[type, dict[str, Any]], clz: type) -> ty
             # we complete the initialization here where we pull the clz_or_func
             # parameter from the annotation. If the Node object has already been
             # initialized, this does nothing.
-            anno_default._inititalize_node_with_annotation(hints_cache, anno)  # type: ignore
+            anno_default._inititalize_node_with_annotation(anno_getter, anno)  # type: ignore
             nodes[name] = anno_default
             rev_map = anno_default.get_rev_map()
             # Add the fields from the Node specification.
@@ -1032,7 +1034,7 @@ def _apply_node_fields(hints_cache: dict[type, dict[str, Any]], clz: type) -> ty
             nodes[name] = anno_default
 
     clz.__annotations__ = new_annos
-    del hints_cache[clz]
+    del anno_getter.cache[clz]
 
     for bclz in clz.__mro__[-1:0:-1]:
         bnodes = getattr(bclz, DATATREE_SENTIENEL_NAME, {})
@@ -1178,19 +1180,81 @@ def _initialize_node_instances(clz: type, instance: object):
         field_value = cur_value.self_default(instance)
         _field_assign(instance, name, field_value)
 
+@dataclass(frozen=True)
+class Scope:
+    localns: dict[str, Any] | None = None
+    globalns: dict[str, Any] | None = None
+    
+_EMPTY_SCOPE = Scope()
 
-def get_annotations(hints_cache: dict[type, dict[str, Any]], clz: type) -> dict[str, Any]:
-    if clz in hints_cache:
-        return hints_cache[clz]
+@dataclass(frozen=True)
+class AnnotationsAccessor:
+    """A cache of type hints for classes as well as the scope to evaluate forward references.
+    
+    As of Python 3.12, get_type_hints are all stored as forward references. This is a helper
+    class to cache the type hints and evaluate forward references.
+    
+    Scope is used to evaluate forward references when the class is defined in a local scope
+    which means that the the forward references are not available in the global scope.
+    """
+    cache: dict[type, dict[str, Any]] = field(default_factory=dict)
+    scope: Scope = _EMPTY_SCOPE
+    
+    def get_annotations(
+        self, 
+        clz: type) -> dict[str, Any]:
+        if clz in self.cache:
+            return self.cache[clz]
 
+        scope = self.scope
+        try:
+            # The use of get_type_hints() here is eager and will fail if it encounters
+            # a forward reference to a type that has not yet been defined in the
+            # provided scope. This is a fundamental limitation of the eager-evaluation
+            # approach of the datatree decorator.
+            #
+            # A potential future solution to allow for partial or lazy resolution is:
+            # 1. Create a placeholder class, e.g., `UnresolvedForwardRef`.
+            # 2. Implement a custom mapping (dict-like) object that wraps the global
+            #    scope.
+            # 3. When this custom mapping fails to find a name (a `__getitem__` miss),
+            #    instead of raising a `KeyError`, it returns an instance of
+            #    `UnresolvedForwardRef(missing_name)`.
+            # 4. Pass this custom mapping to `get_type_hints()` as the `globalns`. It will
+            #    then "succeed" for all annotations, returning a mix of real types
+            #    and `UnresolvedForwardRef` placeholders.
+            # 5. The calling code can then inspect the results and raise a targeted
+            #    error only if an essential type (e.g., for a `Node`) is unresolved.
+            types: dict[str, Any] = get_type_hints(
+                clz, 
+                localns=None if scope.localns is scope.globalns else scope.localns, 
+                globalns=scope.globalns)  # type: ignore
+            # get_type_hints returns more than just the annotations in the original __annotations__
+            # so we need to filter out the extra keys.
+            result = {k: types[k] for k in clz.__annotations__.keys()}
+        except Exception as e:
+            msg = (
+                f"Failed to resolve type hints for class '{clz.__name__}'. "
+                "This often happens when a type hint is a 'forward reference' "
+                "(a string referring to a class that has not been defined yet).\n\n"
+                "Because the '@datatree' decorator processes the class immediately, "
+                "it cannot resolve forward references. Please ensure that all "
+                f"type hints used in '{clz.__name__}' are defined before the class itself.\n\n"
+                f"Original error: {type(e).__name__}: {e}"
+            )
+            raise TypeError(msg) from e
+
+        self.cache[clz] = result
+        return result
+    
+def get_scope(frame: int = 2) -> Scope:
     try:
-        types: dict[str, Any] = get_type_hints(clz)  # type: ignore
-        result = {k: types[k] for k in clz.__annotations__.keys()}
-    except (NameError, TypeError):
-        result = clz.__annotations__
-
-    hints_cache[clz] = result
-    return result
+        defining_frame = sys._getframe(frame)
+        localns: dict[str, Any] = defining_frame.f_locals
+        globalns: dict[str, Any] = defining_frame.f_globals
+        return Scope(localns, globalns)
+    except (ValueError, AttributeError):
+        return _EMPTY_SCOPE
 
 
 # Provide dataclass compatiability post python 3.8.
@@ -1199,6 +1263,7 @@ _POST_38_DEFAULTS = dtargs(match_args=True, kw_only=False, slots=False, weakref_
 
 
 def _process_datatree(
+    anno_getter: AnnotationsAccessor,
     dataclass_func: Callable[[], type | tuple[Any, ...]],
     clz: type,
     init: bool,
@@ -1212,9 +1277,8 @@ def _process_datatree(
     slots: bool,
     weakref_slot: bool,
     chain_post_init: bool,
-    provide_override_field: bool,
+    provide_override_field: bool
 ) -> type | tuple[Any, ...]:
-    hints_cache: dict[type, dict[str, Any]] = dict()
 
     if provide_override_field:
         if OVERRIDE_FIELD_NAME in clz.__annotations__:
@@ -1238,7 +1302,7 @@ def _process_datatree(
     init_vars: list[str] = []
     # Go through MRO in reverse to get base class InitVars first
     for base_cls in reversed(clz.__mro__[:-1]):  # Skip object
-        base_cls_annotations = get_annotations(hints_cache, base_cls)
+        base_cls_annotations = anno_getter.get_annotations(base_cls)
         if base_cls_annotations:
             for name, type_hint in base_cls_annotations.items():
                 if type_hint is InitVar or isinstance(type_hint, InitVar):
@@ -1247,10 +1311,10 @@ def _process_datatree(
 
     # Create the override post_init function with proper parameter handling
     clz.__post_init__ = _create_post_init_function(
-        hints_cache, clz, post_init_func, chain_post_init
+        anno_getter, clz, post_init_func, chain_post_init
     )
 
-    _apply_node_fields(hints_cache, clz)
+    _apply_node_fields(anno_getter, clz)
 
     # Create dict of only the post-Python 3.8 dataclass parameters that differ from defaults.
     # This ensures compatibility with older Python versions while still supporting newer parameters
@@ -1271,6 +1335,48 @@ def _process_datatree(
         unsafe_hash=unsafe_hash,
         frozen=frozen,
         **values_post_38_differ,
+    )
+    
+def scoped_datatree(
+        clz: Optional[type[_T]] = None,
+        init: bool = True,
+        repr_: bool = True,
+        eq: bool = True,
+        order: bool = False,
+        unsafe_hash: bool = False,
+        frozen: bool = False,
+        match_args: bool = True,
+        kw_only: bool = False,
+        slots: bool = False,
+        weakref_slot: bool = False,
+        chain_post_init: bool = False,
+        provide_override_field: bool = False,
+        anno_getter: AnnotationsAccessor = AnnotationsAccessor(),
+    ) -> Callable[[type[_T]], type[_T]]:
+    """A version of the datatree decorator (not intended to be used directly
+    as a decorator) that allows for the local and global scope of the class being decorated to be
+    passed in via the anno_getter parameter.
+    
+    This allows for the datatree decorator to be used in another decorator (like xdatatrees)
+    that needs to know the scope of the class being decorated. 
+    """
+
+    return _process_datatree(
+        anno_getter,
+        dataclass,
+        clz,
+        init,
+        repr_,
+        eq,
+        order,
+        unsafe_hash,
+        frozen,
+        match_args,
+        kw_only,
+        slots,
+        weakref_slot,
+        chain_post_init,
+        provide_override_field,
     )
 
 
@@ -1300,12 +1406,14 @@ if TYPE_CHECKING:
         slots: bool = False,
         weakref_slot: bool = False,
         chain_post_init: bool = False,
-        provide_override_field: bool = False,
-        default_if_missing: Any = MISSING,
+        provide_override_field: bool = False
     ) -> Callable[[type[_T]], type[_T]]:
+        
+        anno_getter = AnnotationsAccessor(scope=get_scope(2))
 
         def wrap(clz):
             return _process_datatree(
+                anno_getter,
                 dataclass,
                 clz,
                 init,
@@ -1319,7 +1427,7 @@ if TYPE_CHECKING:
                 slots,
                 weakref_slot,
                 chain_post_init,
-                provide_override_field,
+                provide_override_field
             )
 
         # See if we're being called as @datatree or @datatree().
@@ -1347,8 +1455,7 @@ else:
         slots: bool = False,
         weakref_slot: bool = False,
         chain_post_init: bool = False,
-        provide_override_field: bool = False,
-        default_if_missing: Any = MISSING,
+        provide_override_field: bool = False
     ) -> Callable[[type[_T]], type[_T]]:
         """Python decorator similar to dataclasses.dataclass providing parameter injection,
         injection, binding and overrides for parameters deeper inside a tree of objects.
@@ -1370,8 +1477,11 @@ else:
                 used to provide overrides for the Node fields
         """
 
+        anno_getter = AnnotationsAccessor(scope=get_scope(2))
+
         def wrap(clz):
             return _process_datatree(
+                anno_getter,
                 dataclass,
                 clz,
                 init,
@@ -1439,7 +1549,7 @@ def _is_classvar(ann_type: Any) -> bool:
 
 
 def _get_post_init_parameter_map(
-    hints_cache: dict[type, dict[str, Any]],
+    anno_getter: 'AnnotationsAccessor',
     clz: type,
     post_init_new_name: str,
     post_init_orig_name: str,
@@ -1487,7 +1597,7 @@ def _get_post_init_parameter_map(
                 _PostInitClasses(i, override_post_init_func, post_init_orig_name, {})
             )
 
-    cls_annotations = get_annotations(hints_cache, clz)
+    cls_annotations = anno_getter.get_annotations(clz)
 
     for name, typ in cls_annotations.items():
         # Skip ClassVar fields - they are not instance fields
@@ -1515,7 +1625,7 @@ def _get_post_init_parameter_map(
 
 
 def _create_chain_post_init_text(
-    hints_cache: dict[type, dict[str, Any]],
+    anno_getter: 'AnnotationsAccessor',
     clz: type,
     post_init_new_name: str,
     post_init_orig_name: str,
@@ -1533,7 +1643,7 @@ def _create_chain_post_init_text(
     """
     locals = {"clz": clz}
     mapping = _get_post_init_parameter_map(
-        hints_cache, clz, post_init_new_name, post_init_orig_name
+        anno_getter, clz, post_init_new_name, post_init_orig_name
     )
     header_text = []
     body_text = []
@@ -1575,7 +1685,7 @@ def _create_chain_post_init_text(
 
 
 def _create_post_init_function(
-    hints_cache: dict[type, dict[str, Any]],
+    anno_getter: AnnotationsAccessor,
     clz: type,
     wrap_fn: Callable[[Any], None] | None = None,
     chain_post_init: bool = False,
@@ -1588,7 +1698,7 @@ def _create_post_init_function(
         globals = {}
 
     locals, header_text, body_text = _create_chain_post_init_text(
-        hints_cache, clz, ORIGINAL_POST_INIT_NAME, "__post_init__", chain_post_init
+        anno_getter, clz, ORIGINAL_POST_INIT_NAME, "__post_init__", chain_post_init
     )
 
     wrap_decorator = []
