@@ -1208,23 +1208,6 @@ class AnnotationsAccessor:
 
         scope = self.scope
         try:
-            # The use of get_type_hints() here is eager and will fail if it encounters
-            # a forward reference to a type that has not yet been defined in the
-            # provided scope. This is a fundamental limitation of the eager-evaluation
-            # approach of the datatree decorator.
-            #
-            # A potential future solution to allow for partial or lazy resolution is:
-            # 1. Create a placeholder class, e.g., `UnresolvedForwardRef`.
-            # 2. Implement a custom mapping (dict-like) object that wraps the global
-            #    scope.
-            # 3. When this custom mapping fails to find a name (a `__getitem__` miss),
-            #    instead of raising a `KeyError`, it returns an instance of
-            #    `UnresolvedForwardRef(missing_name)`.
-            # 4. Pass this custom mapping to `get_type_hints()` as the `globalns`. It will
-            #    then "succeed" for all annotations, returning a mix of real types
-            #    and `UnresolvedForwardRef` placeholders.
-            # 5. The calling code can then inspect the results and raise a targeted
-            #    error only if an essential type (e.g., for a `Node`) is unresolved.
             types: dict[str, Any] = get_type_hints(
                 clz, 
                 localns=None if scope.localns is scope.globalns else scope.localns, 
@@ -1232,20 +1215,24 @@ class AnnotationsAccessor:
             # get_type_hints returns more than just the annotations in the original __annotations__
             # so we need to filter out the extra keys.
             result = {k: types[k] for k in clz.__annotations__.keys()}
-        except Exception as e:
-            msg = (
-                f"Failed to resolve type hints for class '{clz.__name__}'. "
-                "This often happens when a type hint is a 'forward reference' "
-                "(a string referring to a class that has not been defined yet).\n\n"
-                "Because the '@datatree' decorator processes the class immediately, "
-                "it cannot resolve forward references. Please ensure that all "
-                f"type hints used in '{clz.__name__}' are defined before the class itself.\n\n"
-                f"Original error: {type(e).__name__}: {e}"
-            )
-            raise TypeError(msg) from e
+        except Exception:
+            # If we can't get the type hints, just use the original __annotations__.
+            # This is a fallback for when a forward reference is used in 
+            # __annotations__ but not in scope. If all the type hints can't be resolved,
+            # then there may be an error later.
+            result = clz.__annotations__
 
         self.cache[clz] = result
         return result
+    
+    def resolve_forward_reference(self, anno: str) -> Any:
+        localsns = self.scope.localns
+        if type(localsns) is not dict:
+            localsns = dict(localsns)
+        globalns = self.scope.globalns
+        if type(globalns) is not dict:
+            globalns = dict(globalns)
+        return eval(anno, localsns, globalns)
     
 def get_scope(frame: int = 2) -> Scope:
     try:
